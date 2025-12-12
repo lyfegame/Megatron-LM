@@ -75,9 +75,9 @@ def add_arguments(parser):
     )
     group.add_argument(
         '--loader-transformer-impl',
-        default='transformer_engine',
+        default='local',
         choices=['local', 'transformer_engine'],
-        help='Which Transformer implementation to use.',
+        help='Which Transformer implementation to use. Defaults to local for CPU-only conversion.',
     )
 
 
