@@ -152,9 +152,9 @@ def load_args_from_checkpoint(args):
     args.moe_ffn_hidden_size = args.moe_intermediate_size
 
     # Set shared expert intermediate size (num_shared_experts * ffn_size_of_each_shared_expert)
-    # DeepSeek V3 shared experts use the dense intermediate_size
+    # DeepSeek V3 shared experts use the same intermediate_size as MoE experts
     if args.num_shared_experts > 0:
-        args.moe_shared_expert_intermediate_size = args.num_shared_experts * args.ffn_hidden_size
+        args.moe_shared_expert_intermediate_size = args.num_shared_experts * args.moe_intermediate_size
     args.first_k_dense_replace = config.get("first_k_dense_replace", 0)
 
     # Build moe_layer_freq list to handle first_k_dense_replace
