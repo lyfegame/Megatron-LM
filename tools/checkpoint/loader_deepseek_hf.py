@@ -262,13 +262,19 @@ def set_moe_mlp_state(args, layer, hf_layer, layer_idx):
             - mlp.experts.local_experts[i].linear_fc2.weight: [hidden_size, moe_intermediate_size]
             - mlp.shared_experts.linear_fc1.weight: [2 * shared_intermediate_size, hidden_size]
             - mlp.shared_experts.linear_fc2.weight: [hidden_size, shared_intermediate_size]
+
+    Note: DeepSeek V3 uses first_k_dense_replace to make the first k layers dense.
+    However, Megatron may still use MoELayer for all layers. This function handles
+    both cases by checking both HF and Megatron layer structures.
     """
     hf_mlp = hf_layer.mlp
 
-    # Check if this is an MoE layer or dense layer
-    is_moe_layer = hasattr(hf_mlp, 'experts')
+    # Check if HF layer is an MoE layer
+    hf_is_moe = hasattr(hf_mlp, 'experts')
+    # Check if Megatron layer is an MoELayer (has router attribute)
+    megatron_is_moe = hasattr(layer.mlp, 'router')
 
-    if is_moe_layer:
+    if hf_is_moe and megatron_is_moe:
         # Router weights
         layer.mlp.router.weight.data.copy_(hf_mlp.gate.weight)
 
@@ -296,8 +302,29 @@ def set_moe_mlp_state(args, layer, hf_layer, layer_idx):
                     torch.cat([hf_shared.gate_proj.weight, hf_shared.up_proj.weight], dim=0)
                 )
                 layer.mlp.shared_experts.linear_fc2.weight.data.copy_(hf_shared.down_proj.weight)
+    elif not hf_is_moe and megatron_is_moe:
+        # HF layer is dense but Megatron has MoELayer structure
+        # This happens when first_k_dense_replace > 0 but Megatron builds all layers as MoE
+        # We need to copy dense weights to the MoE structure
+        # Initialize router weights to zero (won't be used for dense layers during inference)
+        layer.mlp.router.weight.data.zero_()
+
+        # Copy dense MLP weights to the first expert (expert 0)
+        mcore_experts = layer.mlp.experts.local_experts
+        mcore_experts[0].linear_fc1.weight.data.copy_(
+            torch.cat([hf_mlp.gate_proj.weight, hf_mlp.up_proj.weight], dim=0)
+        )
+        mcore_experts[0].linear_fc2.weight.data.copy_(hf_mlp.down_proj.weight)
+
+        # Zero out other experts (they shouldn't be used for dense layers)
+        for expert_idx in range(1, args.num_experts):
+            mcore_experts[expert_idx].linear_fc1.weight.data.zero_()
+            mcore_experts[expert_idx].linear_fc2.weight.data.zero_()
+
+        print(f"Warning: Layer {layer_idx} is dense in HF but MoE in Megatron. "
+              f"Copied dense weights to expert 0.")
     else:
-        # Dense MLP (first_k_dense_replace layers)
+        # Both HF and Megatron are dense MLP
         layer.mlp.linear_fc1.weight.data.copy_(
             torch.cat([hf_mlp.gate_proj.weight, hf_mlp.up_proj.weight], dim=0)
         )
