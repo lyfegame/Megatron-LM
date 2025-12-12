@@ -168,11 +168,47 @@ class MegatronCheckpointSaverBase:
         mpu.set_pipeline_model_parallel_rank(0)
         mpu.set_expert_model_parallel_rank(0)
         
-        # For backward compatibility during local parallel states refactoring
+        # Setup fake process groups for single-process checkpoint conversion
+        # All groups use size=1 except TP and EP which use the configured sizes
         fake_tp_group = _ConverterFakeProcessGroup(size=self.args.target_tensor_parallel_size)
         fake_ep_group = _ConverterFakeProcessGroup(size=self.args.target_expert_parallel_size)
+        fake_dp_group = _ConverterFakeProcessGroup(size=1)
+
+        # Core parallel groups
         mpu._TENSOR_MODEL_PARALLEL_GROUP = fake_tp_group
+        mpu._PIPELINE_MODEL_PARALLEL_GROUP = fake_dp_group
+        mpu._MODEL_PARALLEL_GROUP = fake_dp_group
+        mpu._DATA_PARALLEL_GROUP = fake_dp_group
+        mpu._DATA_PARALLEL_GROUP_GLOO = fake_dp_group
+        mpu._TENSOR_AND_DATA_PARALLEL_GROUP = fake_dp_group
+
+        # Expert parallel groups
         mpu._EXPERT_MODEL_PARALLEL_GROUP = fake_ep_group
+        mpu._EXPERT_TENSOR_PARALLEL_GROUP = fake_dp_group
+        mpu._EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = fake_dp_group
+        mpu._EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP = fake_dp_group
+        mpu._EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
+        mpu._EXPERT_DATA_PARALLEL_GROUP_GLOO = fake_dp_group
+        mpu._INTRA_PARTIAL_EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
+        mpu._INTRA_PARTIAL_EXPERT_DATA_PARALLEL_GROUP_GLOO = fake_dp_group
+        mpu._INTER_PARTIAL_EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
+
+        # Context parallel groups
+        mpu._CONTEXT_PARALLEL_GROUP = fake_dp_group
+        mpu._DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
+        mpu._DATA_PARALLEL_GROUP_WITH_CP_GLOO = fake_dp_group
+        mpu._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
+        mpu._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP_GLOO = fake_dp_group
+        mpu._TENSOR_AND_CONTEXT_PARALLEL_GROUP = fake_dp_group
+        mpu._TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
+
+        # Embedding groups
+        mpu._EMBEDDING_GROUP = fake_dp_group
+        mpu._POSITION_EMBEDDING_GROUP = fake_dp_group
+
+        # Distributed optimizer group
+        mpu._INTRA_DISTRIBUTED_OPTIMIZER_INSTANCE_GROUP = fake_dp_group
+
         fused_kernels.load(self.margs)
         
         try:
