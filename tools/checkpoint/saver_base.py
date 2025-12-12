@@ -132,6 +132,10 @@ class MegatronCheckpointSaverBase:
         if not self.build_tokenizer:
             margs.tokenizer_model = None
         margs.transformer_impl = self.args.saver_transformer_impl
+        # Sequence parallel requires APEX/TE fused layer norms which aren't available
+        # with local transformer implementation. Disable it for checkpoint conversion.
+        if self.args.saver_transformer_impl == "local":
+            margs.sequence_parallel = False
         if self.args.saver_transformer_impl == "local" and margs.normalization == "RMSNorm":
             margs.no_persist_layer_norm = True
 
