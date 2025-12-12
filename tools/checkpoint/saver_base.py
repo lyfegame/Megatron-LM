@@ -384,6 +384,37 @@ class MegatronCheckpointSaverBase:
 
         print("Done!")
 
+    def save_sequential(self):
+        """
+        Memory-efficient version of save() that processes one TP shard at a time.
+
+        This method is designed for large models where holding all TP shards
+        simultaneously would exceed available memory. It:
+        1. Receives all layer data from the loader and stores it temporarily
+        2. For each TP rank, builds one model, copies weights, saves checkpoint, releases
+
+        Use this instead of save() when converting large models (>100B parameters)
+        with high tensor parallelism on memory-constrained systems.
+        """
+        self.insert_megatron_path_and_check_te()
+
+        self.receive_checkpoint_metadata()
+
+        self.parse_megatron_args()
+
+        self.initialize_megatron_env()
+
+        # Don't initialize models yet - we'll build them one at a time
+        self.models = self.initialize_models()
+
+        # Receive all data from loader and store it
+        self.receive_and_store_model_data()
+
+        # Process each TP shard sequentially
+        self.save_models_sequentially()
+
+        print("Done!")
+
     def save_local_models_to_checkpoint(self):
         """
         Save local models in self.models to a megatron checkpoint.
@@ -407,6 +438,32 @@ class MegatronCheckpointSaverBase:
                         tensor_rank=tp_rank)
                     # release the uselese model parts
                     self.models[pp_rank][ep_rank][tp_rank] = None
+
+    def receive_and_store_model_data(self):
+        """
+        Receive all model data from the loader and store it for later processing.
+
+        This is the first phase of memory-efficient conversion. Instead of building
+        models while receiving data, we just store the raw tensors. The tensors will
+        be processed one TP shard at a time in save_models_sequentially().
+
+        Must be overridden by subclasses to handle model-specific data.
+        """
+        raise NotImplementedError("Subclass must implement receive_and_store_model_data()")
+
+    def save_models_sequentially(self):
+        """
+        Build, populate, and save models one TP shard at a time.
+
+        This is the second phase of memory-efficient conversion. For each TP rank:
+        1. Build the model for that rank
+        2. Copy the appropriate weight slice
+        3. Save the checkpoint
+        4. Delete the model to free memory
+
+        Must be overridden by subclasses to handle model-specific data.
+        """
+        raise NotImplementedError("Subclass must implement save_models_sequentially()")
 
     def receive_lm(self, schema, prefix=None):
         """

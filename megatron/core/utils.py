@@ -553,7 +553,8 @@ def get_pg_size(group=None):
         return group.size()
     if not torch.distributed.is_initialized():
         return 1
-    return group.size()
+    # group is None and distributed is initialized - use default world size
+    return torch.distributed.get_world_size()
 
 
 def get_pg_rank(group=None):
@@ -571,7 +572,8 @@ def get_pg_rank(group=None):
         return group.rank()
     if not torch.distributed.is_initialized():
         return 0
-    return group.rank()
+    # group is None and distributed is initialized - use default rank
+    return torch.distributed.get_rank()
 
 
 def get_pg_src_rank(group=None):
