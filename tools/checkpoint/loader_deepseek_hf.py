@@ -456,6 +456,16 @@ def _load_checkpoint(queue, args):
     margs.tokenizer_model = args.tokenizer_model
     load_args_from_checkpoint(margs)
 
+    # Transfer HF-derived MoE settings to margs
+    # These settings were extracted from HF config in _build_hf_args
+    margs.num_experts = args.num_experts
+    margs.moe_router_topk = args.moe_router_topk
+    margs.num_shared_experts = args.num_shared_experts
+    margs.moe_ffn_hidden_size = args.moe_ffn_hidden_size
+    margs.moe_layer_freq = args.moe_layer_freq
+    if hasattr(args, 'moe_shared_expert_intermediate_size'):
+        margs.moe_shared_expert_intermediate_size = args.moe_shared_expert_intermediate_size
+
     # Set tokenizer type
     margs.tokenizer_type = "HuggingFaceTokenizer"
 
