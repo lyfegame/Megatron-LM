@@ -506,7 +506,18 @@ def get_tensor_model_parallel_group_if_none(tp_group, is_expert=False, check_ini
     """Issue a deprecation warning if tp_group is None and return the default tp group."""
     # TODO(zijiey): remove this function later.
     if not torch.distributed.is_initialized():
-        return None
+        # When distributed is not initialized (e.g., during checkpoint conversion),
+        # return the fake process group if one has been set up via mpu
+        if tp_group is None:
+            if is_expert:
+                tp_group = parallel_state.get_expert_tensor_parallel_group(
+                    check_initialized=False
+                )
+            else:
+                tp_group = parallel_state.get_tensor_model_parallel_group(
+                    check_initialized=False
+                )
+        return tp_group
 
     if tp_group is None:
         if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
