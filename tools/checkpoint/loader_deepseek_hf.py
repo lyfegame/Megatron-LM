@@ -83,10 +83,13 @@ def add_arguments(parser):
 
 def verify_transformers_version():
     """Verify transformers version is compatible."""
-    major, minor, patch = map(int, transformers.__version__.split('.')[:3])
-    assert major >= 4 and minor >= 36, (
-        f"DeepSeek V3 requires transformers >= 4.36.0, got {transformers.__version__}"
-    )
+    import re
+    version_match = re.match(r'(\d+)\.(\d+)', transformers.__version__)
+    if version_match:
+        major, minor = int(version_match.group(1)), int(version_match.group(2))
+        assert major >= 4 or (major == 4 and minor >= 36) or major >= 5, (
+            f"DeepSeek V3 requires transformers >= 4.36.0, got {transformers.__version__}"
+        )
 
 
 def load_args_from_checkpoint(args):
