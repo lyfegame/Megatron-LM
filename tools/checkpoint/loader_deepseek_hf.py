@@ -151,7 +151,16 @@ def load_args_from_checkpoint(args):
     # Megatron uses moe_ffn_hidden_size for MoE expert FFN dimensions
     args.moe_ffn_hidden_size = args.moe_intermediate_size
     args.first_k_dense_replace = config.get("first_k_dense_replace", 0)
-    args.moe_layer_freq = config.get("moe_layer_freq", 1)
+
+    # Build moe_layer_freq list to handle first_k_dense_replace
+    # For DeepSeek V3: first k layers are dense (0), rest are MoE (1)
+    base_moe_freq = config.get("moe_layer_freq", 1)
+    if args.first_k_dense_replace > 0:
+        # Create explicit layer pattern: 0 for dense, 1 for MoE
+        moe_layer_pattern = [0] * args.first_k_dense_replace + [1] * (args.num_layers - args.first_k_dense_replace)
+        args.moe_layer_freq = moe_layer_pattern
+    else:
+        args.moe_layer_freq = base_moe_freq
 
     # GQA settings (DeepSeek V3 uses MLA, not GQA, but set for compatibility)
     num_kv_heads = config.get("num_key_value_heads", args.num_attention_heads)
@@ -306,25 +315,12 @@ def set_moe_mlp_state(args, layer, hf_layer, layer_idx):
                 layer.mlp.shared_experts.linear_fc2.weight.data.copy_(hf_shared.down_proj.weight)
     elif not hf_is_moe and megatron_is_moe:
         # HF layer is dense but Megatron has MoELayer structure
-        # This happens when first_k_dense_replace > 0 but Megatron builds all layers as MoE
-        # We need to copy dense weights to the MoE structure
-        # Initialize router weights to zero (won't be used for dense layers during inference)
-        layer.mlp.router.weight.data.zero_()
-
-        # Copy dense MLP weights to the first expert (expert 0)
-        mcore_experts = layer.mlp.experts.local_experts
-        mcore_experts[0].linear_fc1.weight.data.copy_(
-            torch.cat([hf_mlp.gate_proj.weight, hf_mlp.up_proj.weight], dim=0)
+        # This should not happen with proper moe_layer_freq setting
+        raise RuntimeError(
+            f"Layer {layer_idx} architecture mismatch: HF has dense MLP but Megatron has MoE. "
+            f"This indicates moe_layer_freq is not set correctly. Expected first {args.first_k_dense_replace} "
+            f"layers to be dense based on first_k_dense_replace config."
         )
-        mcore_experts[0].linear_fc2.weight.data.copy_(hf_mlp.down_proj.weight)
-
-        # Zero out other experts (they shouldn't be used for dense layers)
-        for expert_idx in range(1, args.num_experts):
-            mcore_experts[expert_idx].linear_fc1.weight.data.zero_()
-            mcore_experts[expert_idx].linear_fc2.weight.data.zero_()
-
-        print(f"Warning: Layer {layer_idx} is dense in HF but MoE in Megatron. "
-              f"Copied dense weights to expert 0.")
     else:
         # Both HF and Megatron are dense MLP
         layer.mlp.linear_fc1.weight.data.copy_(
