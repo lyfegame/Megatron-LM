@@ -142,6 +142,7 @@ class MultiLatentAttention(Attention):
                 mscale=self.config.mscale,
                 mscale_all_dim=self.config.mscale_all_dim,
                 cp_group=self.pg_collection.cp,
+                use_cpu_initialization=self.config.use_cpu_initialization,
             )
         else:
             raise ValueError(
