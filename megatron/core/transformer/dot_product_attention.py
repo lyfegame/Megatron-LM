@@ -49,6 +49,9 @@ class DotProductAttention(MegatronModule):
         softmax_scale: float = None,
         cp_comm_type: str = None,
         pg_collection: ProcessGroupCollection = None,
+        k_channels: int = None,  # For compatibility with TEDotProductAttention (MLA)
+        v_channels: int = None,  # For compatibility with TEDotProductAttention (MLA)
+        **kwargs,  # Absorb any other TE-specific args
     ):
         super().__init__(config=config)
 
