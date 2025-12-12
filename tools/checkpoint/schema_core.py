@@ -98,7 +98,37 @@ class CoreTESchema(CoreSchema):
         } | extra_layer_schema, prefix=prefix)
 
 
+class CoreMoELocalSchema(CoreSchema):
+    """MoE schema for local (non-TE) transformer implementation."""
+
+    def __init__(self, model_type, num_experts, expert_model_parallel_size, prefix, extra_layer_schema):
+        num_local_experts = num_experts // expert_model_parallel_size
+        super().__init__(model_type, layer_schema={
+
+            # Self attention.
+            "self_attn_norm_weight" : "input_layernorm.weight",
+            "self_attn_norm_bias" : "input_layernorm.bias",
+
+            "self_attn_qkv_weight" : "self_attention.linear_qkv.weight",
+            "self_attn_qkv_bias" : "self_attention.linear_qkv.bias",
+
+            "self_attn_proj_weight" : "self_attention.linear_proj.weight",
+            "self_attn_proj_bias" : "self_attention.linear_proj.bias",
+
+            # MLP.
+            "mlp_norm_weight" : "pre_mlp_layernorm.weight",
+            "mlp_norm_bias" : "pre_mlp_layernorm.bias",
+
+            "router_weight" : "mlp.router.weight",
+
+            **{f"mlp_fc1_weight.{expert_idx}" : f"mlp.experts.local_experts.{expert_idx}.linear_fc1.weight" for expert_idx in range(num_local_experts) },
+            **{f"mlp_fc2_weight.{expert_idx}" : f"mlp.experts.local_experts.{expert_idx}.linear_fc2.weight" for expert_idx in range(num_local_experts) },
+
+        } | extra_layer_schema, prefix=prefix)
+
+
 class CoreMoETESchema(CoreSchema):
+    """MoE schema for Transformer Engine implementation."""
 
     def __init__(self, model_type, num_experts, expert_model_parallel_size, prefix, extra_layer_schema):
         num_local_experts = num_experts // expert_model_parallel_size
@@ -135,10 +165,11 @@ def get_model_schema(
     extra_layer_schema: T.Optional[dict] = {},
 ) -> CoreSchema:
     if num_experts is not None and num_experts > 0:
-        # Only support TE setter for MOE
-        assert transformer_impl == "transformer_engine"
         assert isinstance(expert_model_parallel_size, int)
-        return CoreMoETESchema(model_type, num_experts, expert_model_parallel_size, prefix, extra_layer_schema)
+        if transformer_impl == "local":
+            return CoreMoELocalSchema(model_type, num_experts, expert_model_parallel_size, prefix, extra_layer_schema)
+        else:
+            return CoreMoETESchema(model_type, num_experts, expert_model_parallel_size, prefix, extra_layer_schema)
     return {
         "local" : CoreLocalSchema,
         "transformer_engine" : CoreTESchema,
