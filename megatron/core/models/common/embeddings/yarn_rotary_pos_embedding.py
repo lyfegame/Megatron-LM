@@ -118,11 +118,11 @@ class YarnRotaryEmbedding(RotaryEmbedding):
             not self.rotary_interleaved
         ), "Yarn RoPE does not support interleaved rotary embeddings"
 
-        if self.inv_freq_extra.device.type == 'cpu':
+        if self.inv_freq_extra.device.type == 'cpu' and torch.cuda.is_available():
             # move `inv_freq_extra` to GPU once at the first micro-batch forward pass
             self.inv_freq_extra = self.inv_freq_extra.to(device=torch.cuda.current_device())
 
-        if self.inv_freq_inter.device.type == 'cpu':
+        if self.inv_freq_inter.device.type == 'cpu' and torch.cuda.is_available():
             # move `inv_freq_inter` to GPU once at the first micro-batch forward pass
             self.inv_freq_inter = self.inv_freq_inter.to(device=torch.cuda.current_device())
 
