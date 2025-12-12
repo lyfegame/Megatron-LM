@@ -933,8 +933,9 @@ def validate_args(args, defaults={}):
 
     # disable async_tensor_model_parallel_allreduce when
     # model parallel memory optimization is enabled
+    # Skip for CPU-only mode (get_device_arch_version returns 0 when CUDA unavailable)
     if (args.tensor_model_parallel_size > 1 or args.context_parallel_size > 1) \
-        and get_device_arch_version() < 10:
+        and torch.cuda.is_available() and get_device_arch_version() < 10:
         # CUDA_DEVICE_MAX_CONNECTIONS requirement no longer exists since the Blackwell architecture
         if args.use_torch_fsdp2 or args.use_megatron_fsdp:
             fsdp_impl = "Torch-FSDP2" if args.use_torch_fsdp2 else "Megatron-FSDP"
