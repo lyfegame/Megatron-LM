@@ -179,6 +179,7 @@ class MultiLatentAttention(Attention):
 
         if (
             HAVE_TE
+            and TELinear is not None
             and isinstance(self.linear_proj, TELinear)
             and (
                 (
@@ -420,13 +421,14 @@ class MLASelfAttention(MultiLatentAttention):
 
         else:
             q_down_proj_kwargs = {}
-            if submodules.linear_q_down_proj in [TELinear]:
+            if TELinear is not None and submodules.linear_q_down_proj in [TELinear]:
                 q_down_proj_kwargs['parallel_mode'] = 'duplicated'
             elif submodules.linear_q_down_proj in [
-                Linear,
-                TEColumnParallelLinear,
-                ColumnParallelLinear,
+                x for x in [Linear, TEColumnParallelLinear, ColumnParallelLinear] if x is not None
             ]:
+                q_down_proj_kwargs['gather_output'] = False
+            elif not HAVE_TE:
+                # When TE is not available, use default kwargs for ColumnParallelLinear
                 q_down_proj_kwargs['gather_output'] = False
             else:
                 raise ValueError(f"Unsupported linear_q_down_proj: {submodules.linear_q_down_proj}")
@@ -459,13 +461,14 @@ class MLASelfAttention(MultiLatentAttention):
             )
 
         kv_down_proj_kwargs = {}
-        if submodules.linear_kv_down_proj in [TELinear]:
+        if TELinear is not None and submodules.linear_kv_down_proj in [TELinear]:
             kv_down_proj_kwargs['parallel_mode'] = 'duplicated'
         elif submodules.linear_kv_down_proj in [
-            Linear,
-            TEColumnParallelLinear,
-            ColumnParallelLinear,
+            x for x in [Linear, TEColumnParallelLinear, ColumnParallelLinear] if x is not None
         ]:
+            kv_down_proj_kwargs['gather_output'] = False
+        elif not HAVE_TE:
+            # When TE is not available, use default kwargs for ColumnParallelLinear
             kv_down_proj_kwargs['gather_output'] = False
         else:
             raise ValueError(f"Unsupported linear_kv_down_proj: {submodules.linear_kv_down_proj}")
