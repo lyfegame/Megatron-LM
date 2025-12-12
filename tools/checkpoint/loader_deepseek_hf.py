@@ -150,6 +150,11 @@ def load_args_from_checkpoint(args):
     args.moe_intermediate_size = config.get("moe_intermediate_size", args.ffn_hidden_size)
     # Megatron uses moe_ffn_hidden_size for MoE expert FFN dimensions
     args.moe_ffn_hidden_size = args.moe_intermediate_size
+
+    # Set shared expert intermediate size (num_shared_experts * ffn_size_of_each_shared_expert)
+    # DeepSeek V3 shared experts use the dense intermediate_size
+    if args.num_shared_experts > 0:
+        args.moe_shared_expert_intermediate_size = args.num_shared_experts * args.ffn_hidden_size
     args.first_k_dense_replace = config.get("first_k_dense_replace", 0)
 
     # Build moe_layer_freq list to handle first_k_dense_replace
@@ -308,7 +313,8 @@ def set_moe_mlp_state(args, layer, hf_layer, layer_idx):
         # Shared experts (if present)
         if args.num_shared_experts > 0 and hasattr(hf_mlp, 'shared_experts'):
             hf_shared = hf_mlp.shared_experts
-            if hasattr(layer.mlp, 'shared_experts'):
+            # Check that shared_experts exists and is not None
+            if hasattr(layer.mlp, 'shared_experts') and layer.mlp.shared_experts is not None:
                 layer.mlp.shared_experts.linear_fc1.weight.data.copy_(
                     torch.cat([hf_shared.gate_proj.weight, hf_shared.up_proj.weight], dim=0)
                 )
