@@ -178,12 +178,12 @@ class MegatronCheckpointSaverBase:
         
         # Setup fake process groups for single-process checkpoint conversion
         # All groups use size=1 except TP and EP which use the configured sizes
-        fake_tp_group = _ConverterFakeProcessGroup(size=self.args.target_tensor_parallel_size)
-        fake_ep_group = _ConverterFakeProcessGroup(size=self.args.target_expert_parallel_size)
+        self.fake_tp_group = _ConverterFakeProcessGroup(size=self.args.target_tensor_parallel_size)
+        self.fake_ep_group = _ConverterFakeProcessGroup(size=self.args.target_expert_parallel_size)
         fake_dp_group = _ConverterFakeProcessGroup(size=1)
 
         # Core parallel groups
-        mpu._TENSOR_MODEL_PARALLEL_GROUP = fake_tp_group
+        mpu._TENSOR_MODEL_PARALLEL_GROUP = self.fake_tp_group
         mpu._PIPELINE_MODEL_PARALLEL_GROUP = fake_dp_group
         mpu._MODEL_PARALLEL_GROUP = fake_dp_group
         mpu._DATA_PARALLEL_GROUP = fake_dp_group
@@ -191,7 +191,7 @@ class MegatronCheckpointSaverBase:
         mpu._TENSOR_AND_DATA_PARALLEL_GROUP = fake_dp_group
 
         # Expert parallel groups
-        mpu._EXPERT_MODEL_PARALLEL_GROUP = fake_ep_group
+        mpu._EXPERT_MODEL_PARALLEL_GROUP = self.fake_ep_group
         mpu._EXPERT_TENSOR_PARALLEL_GROUP = fake_dp_group
         mpu._EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = fake_dp_group
         mpu._EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP = fake_dp_group
@@ -344,7 +344,21 @@ class MegatronCheckpointSaverBase:
         """
         Get the local model for a certain (pp,ep,tp).
         """
+        try:
+            from megatron.core import mpu
+        except ModuleNotFoundError as e:
+            print(f"Unable to import required Megatron modules: {e}")
+            sys.exit(1)
+
         if self.models[pp_rank][ep_rank][tp_rank] is None:
+            # Update parallel ranks before building the model so that
+            # VocabParallelEmbedding and other TP-sharded layers are initialized
+            # with the correct partition indices
+            mpu.set_tensor_model_parallel_rank(tp_rank)
+            mpu.set_expert_model_parallel_rank(ep_rank)
+            self.fake_tp_group.set_rank(tp_rank)
+            self.fake_ep_group.set_rank(ep_rank)
+
             pre_process = True if pp_rank == 0 else False
             post_process = True if pp_rank == self.args.target_pipeline_parallel_size - 1 else False
             self.models[pp_rank][ep_rank][tp_rank] = self.model_provider(pre_process, post_process).to(self.md.params_dtype)

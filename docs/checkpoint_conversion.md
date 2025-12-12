@@ -180,11 +180,13 @@ python scripts/fp8_to_bf16_convert.py \
 | 17:11 | 128/163 | Processing shard 67 |
 | 17:59 | 145/163 | Uploading shard 114 |
 | 18:05 | 148/163 | 91% complete |
-| ~18:20 (est) | 163/163 | Expected completion |
+| 18:40 | 163/163 | **COMPLETE** - All shards + metadata uploaded |
 
-**Rate:** ~2.5 minutes per shard (includes download, convert, upload)
-
-**Memory usage:** ~15GB peak out of 125GB available (very efficient)
+**Final Stats:**
+- **Duration:** ~1h 48m (for 41 new shards + metadata)
+- **Rate:** ~2.5 minutes per shard (includes download, convert, upload)
+- **Memory usage:** ~15GB peak out of 125GB available (very efficient)
+- **FP8 size:** 642 GiB → **BF16 size:** 1.25 TiB (~1.95x, as expected)
 
 ### Conversion Time
 
