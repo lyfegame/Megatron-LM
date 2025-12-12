@@ -14,6 +14,10 @@ from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubm
 from megatron.core.transformer.enums import AttnMaskType, LayerType
 from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.mlp import MLP, MLPSubmodules
+from megatron.core.transformer.lightning_indexer import (
+    LightningIndexer,
+    LightningIndexerSubmodules,
+)
 from megatron.core.transformer.multi_latent_attention import (
     MLASelfAttention,
     MLASelfAttentionSubmodules,
@@ -671,3 +675,94 @@ def get_gpt_mtp_block_spec_for_backend(
         mtp_block_spec = None
 
     return mtp_block_spec
+
+
+def get_mla_with_dsa_spec(
+    backend: BackendSpecProvider,
+    num_experts: Optional[int] = None,
+    moe_grouped_gemm: Optional[bool] = False,
+    qk_layernorm: Optional[bool] = False,
+    moe_use_legacy_grouped_gemm: Optional[bool] = False,
+    use_te_activation_func: bool = False,
+) -> ModuleSpec:
+    """
+    Get MLA self-attention spec with Lightning Indexer for DeepSeek V3.2 DSA.
+
+    This function creates a TransformerLayer ModuleSpec that includes the
+    Lightning Indexer for sparse attention. Use this for models that need
+    DeepSeek V3.2's sparse attention mechanism.
+
+    Args:
+        backend: The backend spec provider (e.g., TESpecProvider, LocalSpecProvider)
+        num_experts: Number of MoE experts. None for dense MLP.
+        moe_grouped_gemm: Whether to use grouped GEMM for MoE.
+        qk_layernorm: Whether to use layernorm for queries/keys.
+        moe_use_legacy_grouped_gemm: Force use legacy GroupedMLP.
+        use_te_activation_func: Use TransformerEngine activation functions.
+
+    Returns:
+        ModuleSpec: Transformer layer specification with MLA + DSA (Lightning Indexer)
+
+    Example:
+        from megatron.core.models.gpt.gpt_layer_specs import get_mla_with_dsa_spec
+        from megatron.core.extensions.transformer_engine_spec_provider import TESpecProvider
+
+        # Create layer spec with DSA
+        layer_spec = get_mla_with_dsa_spec(TESpecProvider())
+    """
+    mlp = get_mlp_module_spec_for_backend(
+        backend=backend,
+        num_experts=num_experts,
+        moe_grouped_gemm=moe_grouped_gemm,
+        moe_use_legacy_grouped_gemm=moe_use_legacy_grouped_gemm,
+        use_te_activation_func=use_te_activation_func,
+    )
+
+    linear_q_up_proj = (
+        backend.column_parallel_layer_norm_linear()
+        if qk_layernorm
+        else backend.column_parallel_linear()
+    )
+    linear_kv_up_proj = (
+        backend.column_parallel_layer_norm_linear()
+        if qk_layernorm
+        else backend.column_parallel_linear()
+    )
+
+    # Lightning Indexer submodule spec
+    indexer_spec = ModuleSpec(
+        module=LightningIndexer,
+        submodules=LightningIndexerSubmodules(
+            linear_q_proj=backend.column_parallel_linear(),
+            linear_k_proj=backend.column_parallel_linear(),
+            linear_weights_proj=backend.column_parallel_linear(),
+            k_layernorm=backend.layer_norm(),
+        ),
+    )
+
+    return ModuleSpec(
+        module=TransformerLayer,
+        submodules=TransformerLayerSubmodules(
+            input_layernorm=backend.layer_norm(),
+            self_attention=ModuleSpec(
+                module=MLASelfAttention,
+                params={"attn_mask_type": AttnMaskType.causal},
+                submodules=MLASelfAttentionSubmodules(
+                    linear_q_proj=backend.column_parallel_linear(),
+                    linear_q_down_proj=backend.linear(),
+                    linear_q_up_proj=linear_q_up_proj,
+                    linear_kv_down_proj=backend.linear(),
+                    linear_kv_up_proj=linear_kv_up_proj,
+                    core_attention=backend.core_attention(),
+                    linear_proj=backend.row_parallel_linear(),
+                    q_layernorm=IdentityOp,
+                    kv_layernorm=IdentityOp,
+                    indexer=indexer_spec,  # Lightning Indexer for DSA
+                ),
+            ),
+            self_attn_bda=get_bias_dropout_add,
+            pre_mlp_layernorm=backend.layer_norm() if num_experts else IdentityOp,
+            mlp=mlp,
+            mlp_bda=get_bias_dropout_add,
+        ),
+    )

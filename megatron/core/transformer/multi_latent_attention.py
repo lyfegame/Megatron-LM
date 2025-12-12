@@ -75,6 +75,7 @@ class MLASelfAttentionSubmodules:
     linear_proj: Union[ModuleSpec, type] = None
     q_layernorm: Union[ModuleSpec, type] = None
     kv_layernorm: Union[ModuleSpec, type] = None
+    indexer: Union[ModuleSpec, type] = None  # Lightning Indexer for DSA (DeepSeek V3.2)
 
 
 class MultiLatentAttention(Attention):
@@ -261,6 +262,51 @@ class MultiLatentAttention(Attention):
         # Value is none during decode for absorption
         if value is not None:
             value = value.contiguous()
+
+        # ==================================
+        # Apply sparse attention mask (DSA)
+        # ==================================
+        if hasattr(self, 'indexer') and self.indexer is not None:
+            seq_len = hidden_states.shape[0]
+            batch_size = hidden_states.shape[1]
+            kv_len = key.shape[0]
+
+            # Get position offset for inference
+            position_offset = 0
+            if inference_context is not None:
+                position_offset = inference_context.sequence_len_offset
+
+            # Compute sparse indices using stored q_compressed
+            topk_indices = self.indexer(
+                hidden_states,
+                self._q_compressed_for_indexer,
+                attention_mask,
+                position_offset=position_offset,
+            )
+
+            # Build sparse mask: start with all masked (-inf)
+            sparse_mask = torch.full(
+                (batch_size, 1, seq_len, kv_len),
+                float("-inf"),
+                device=hidden_states.device,
+                dtype=query.dtype,
+            )
+
+            # Unmask selected positions (set to 0)
+            # topk_indices: [S, B, topk] -> [B, S, topk]
+            topk_indices_t = topk_indices.transpose(0, 1)
+            sparse_mask.scatter_(
+                -1, topk_indices_t.unsqueeze(1).expand(-1, 1, -1, -1), 0.0
+            )
+
+            # Combine with existing attention mask
+            if attention_mask is not None:
+                attention_mask = torch.maximum(attention_mask, sparse_mask)
+            else:
+                attention_mask = sparse_mask
+
+            # Clear stored q_compressed to free memory
+            self._q_compressed_for_indexer = None
 
         # ==================================
         # core attention computation
@@ -465,6 +511,16 @@ class MLASelfAttention(MultiLatentAttention):
             eps=self.config.layernorm_epsilon,
         )
 
+        # Lightning Indexer for sparse attention (DeepSeek V3.2 DSA)
+        self.indexer = None
+        self._q_compressed_for_indexer = None  # Stored for indexer access
+        if self.config.use_sparse_attention and submodules.indexer is not None:
+            self.indexer = build_module(
+                submodules.indexer,
+                config=self.config,
+                layer_number=layer_number,
+            )
+
     def get_query_key_value_tensors(
         self,
         hidden_states,
@@ -545,6 +601,12 @@ class MLASelfAttention(MultiLatentAttention):
                 q_compressed = gather_from_tensor_model_parallel_region(q_compressed)
                 if self.config.sequence_parallel:
                     q_compressed = scatter_to_sequence_parallel_region(q_compressed)
+
+            # Store q_compressed for Lightning Indexer (detach during sparse training per tech report)
+            if self.indexer is not None:
+                self._q_compressed_for_indexer = (
+                    q_compressed.detach() if self.training else q_compressed
+                )
         else:
             q_compressed = hidden_states
 

@@ -1697,8 +1697,21 @@ class MLATransformerConfig(TransformerConfig):
 
     cache_mla_latents: bool = False
     """Cache the low dimensional tensors for MLA rather than full KV cache.
-       This is only for the dynamic inference backend and requires that 
+       This is only for the dynamic inference backend and requires that
        Flash MLA is installed."""
+
+    # DeepSeek V3.2 Sparse Attention (DSA) parameters
+    use_sparse_attention: bool = False
+    """Enable Lightning Indexer for sparse attention (DeepSeek V3.2 DSA)."""
+
+    index_n_heads: int = 64
+    """Number of attention heads in the Lightning Indexer."""
+
+    index_head_dim: int = 128
+    """Head dimension for Lightning Indexer."""
+
+    index_topk: int = 2048
+    """Number of top-k tokens to select for sparse attention."""
 
     def __post_init__(self):
         super().__post_init__()

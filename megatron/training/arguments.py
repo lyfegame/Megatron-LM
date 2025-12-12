@@ -1260,6 +1260,11 @@ def validate_args(args, defaults={}):
     if args.multi_latent_attention:
         assert not args.group_query_attention, "Group query attention is mutually exclusive with multi latent attention."
 
+    # DeepSeek V3.2 Sparse Attention (DSA) validation
+    if args.use_sparse_attention:
+        assert args.multi_latent_attention, \
+            '--use-sparse-attention requires --multi-latent-attention'
+
     # MoE latent projections
     if args.moe_latent_size is not None:
         assert args.moe_latent_size > 0, "MoE latent projection dimension has to be greater than zero."
@@ -3271,6 +3276,17 @@ def _add_mla_args(parser):
                        help="Mscale all dimensions for YaRN RoPE in multi-latent attention.")
     group.add_argument('--cache-mla-latents', action='store_true', default=False,
                        help="If set caches the mla down projected latents with mla flash decode.")
+
+    # DeepSeek V3.2 Sparse Attention (DSA) arguments
+    group.add_argument('--use-sparse-attention', action='store_true', default=False,
+                       help='Enable DeepSeek V3.2 sparse attention (Lightning Indexer). '
+                            'Only effective when --multi-latent-attention is also enabled.')
+    group.add_argument('--index-n-heads', type=int, default=64,
+                       help='Number of heads in Lightning Indexer (default: 64)')
+    group.add_argument('--index-head-dim', type=int, default=128,
+                       help='Head dimension for Lightning Indexer (default: 128)')
+    group.add_argument('--index-topk', type=int, default=2048,
+                       help='Top-k tokens for sparse attention (default: 2048)')
 
     return parser
 
