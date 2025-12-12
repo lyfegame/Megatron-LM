@@ -382,11 +382,11 @@ def _load_checkpoint(queue, args):
         from megatron.legacy.model import module
         from megatron.training.arguments import parse_args, validate_args
         from megatron.training.global_vars import set_global_variables
-    except ModuleNotFoundError:
-        print(
-            "Unable to import Megatron, please specify the path to Megatron "
-            "using --megatron-path. Exiting."
-        )
+    except ModuleNotFoundError as e:
+        import traceback
+        print(f"Unable to import Megatron: {e}")
+        traceback.print_exc()
+        print("Please specify the path to Megatron using --megatron-path. Exiting.")
         queue.put("exit")
         exit(1)
 
