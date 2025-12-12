@@ -53,10 +53,11 @@ try:
         TEColumnParallelLinear,
         TELinear,
         set_save_original_input,
+        HAVE_TE,
     )
     from megatron.core.post_training.modelopt.layers import Linear
 
-    HAVE_TE = True
+    # HAVE_TE comes from transformer_engine.py and correctly reflects TE availability
 except ImportError:
     TEColumnParallelLinear, TELinear, Linear, set_save_original_input = None, None, None, None
     HAVE_TE = False
