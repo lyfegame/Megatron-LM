@@ -441,17 +441,8 @@ def is_first_or_last_pipeline_stage(vp_stage):
 
 
 def get_device_arch_version():
-    """Returns GPU arch version (8: Ampere, 9: Hopper, 10: Blackwell, ...)
-
-    Returns 0 if CUDA is not available (CPU-only mode).
-    """
-    if not torch.cuda.is_available():
-        return 0
-    try:
-        return torch.cuda.get_device_properties(torch.device("cuda:0")).major
-    except RuntimeError:
-        # CUDA initialization failed (no GPU driver)
-        return 0
+    """Returns GPU arch version (8: Ampere, 9: Hopper, 10: Blackwell, ...)"""
+    return torch.cuda.get_device_properties(torch.device("cuda:0")).major
 
 
 def append_to_progress_log(string, barrier=True):

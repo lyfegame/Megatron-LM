@@ -40,13 +40,9 @@ class MegatronCheckpointSaverBase:
         Check for an appropriate installation of transformer engine and add megatron to sys path.
         """
         # Transformer engine >= 0.12.0, for CPU initialization.
-        # If transformer-engine is not installed, we proceed without it (CPU-only conversion)
-        try:
-            te_version = PkgVersion(version("transformer-engine"))
-            assert te_version >= PkgVersion("0.12.0"), \
-                "transformer engine version: %s (>=0.12.0 required)." % te_version
-        except Exception:
-            print("Warning: transformer-engine not installed. Proceeding with CPU-only conversion.")
+        te_version = PkgVersion(version("transformer-engine"))
+        assert te_version >= PkgVersion("0.12.0"), \
+            "transformer engine version: %s (>=0.12.0 required)." % te_version
 
         # Search in directory above this
         sys.path.append(os.path.abspath(
@@ -132,10 +128,6 @@ class MegatronCheckpointSaverBase:
         if not self.build_tokenizer:
             margs.tokenizer_model = None
         margs.transformer_impl = self.args.saver_transformer_impl
-        # Sequence parallel requires APEX/TE fused layer norms which aren't available
-        # with local transformer implementation. Disable it for checkpoint conversion.
-        if self.args.saver_transformer_impl == "local":
-            margs.sequence_parallel = False
         if self.args.saver_transformer_impl == "local" and margs.normalization == "RMSNorm":
             margs.no_persist_layer_norm = True
 
@@ -176,47 +168,11 @@ class MegatronCheckpointSaverBase:
         mpu.set_pipeline_model_parallel_rank(0)
         mpu.set_expert_model_parallel_rank(0)
         
-        # Setup fake process groups for single-process checkpoint conversion
-        # All groups use size=1 except TP and EP which use the configured sizes
-        self.fake_tp_group = _ConverterFakeProcessGroup(size=self.args.target_tensor_parallel_size)
-        self.fake_ep_group = _ConverterFakeProcessGroup(size=self.args.target_expert_parallel_size)
-        fake_dp_group = _ConverterFakeProcessGroup(size=1)
-
-        # Core parallel groups
-        mpu._TENSOR_MODEL_PARALLEL_GROUP = self.fake_tp_group
-        mpu._PIPELINE_MODEL_PARALLEL_GROUP = fake_dp_group
-        mpu._MODEL_PARALLEL_GROUP = fake_dp_group
-        mpu._DATA_PARALLEL_GROUP = fake_dp_group
-        mpu._DATA_PARALLEL_GROUP_GLOO = fake_dp_group
-        mpu._TENSOR_AND_DATA_PARALLEL_GROUP = fake_dp_group
-
-        # Expert parallel groups
-        mpu._EXPERT_MODEL_PARALLEL_GROUP = self.fake_ep_group
-        mpu._EXPERT_TENSOR_PARALLEL_GROUP = fake_dp_group
-        mpu._EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = fake_dp_group
-        mpu._EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP = fake_dp_group
-        mpu._EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
-        mpu._EXPERT_DATA_PARALLEL_GROUP_GLOO = fake_dp_group
-        mpu._INTRA_PARTIAL_EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
-        mpu._INTRA_PARTIAL_EXPERT_DATA_PARALLEL_GROUP_GLOO = fake_dp_group
-        mpu._INTER_PARTIAL_EXPERT_DATA_PARALLEL_GROUP = fake_dp_group
-
-        # Context parallel groups
-        mpu._CONTEXT_PARALLEL_GROUP = fake_dp_group
-        mpu._DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
-        mpu._DATA_PARALLEL_GROUP_WITH_CP_GLOO = fake_dp_group
-        mpu._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
-        mpu._INTRA_PARTIAL_DATA_PARALLEL_GROUP_WITH_CP_GLOO = fake_dp_group
-        mpu._TENSOR_AND_CONTEXT_PARALLEL_GROUP = fake_dp_group
-        mpu._TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = fake_dp_group
-
-        # Embedding groups
-        mpu._EMBEDDING_GROUP = fake_dp_group
-        mpu._POSITION_EMBEDDING_GROUP = fake_dp_group
-
-        # Distributed optimizer group
-        mpu._INTRA_DISTRIBUTED_OPTIMIZER_INSTANCE_GROUP = fake_dp_group
-
+        # For backward compatibility during local parallel states refactoring
+        fake_tp_group = _ConverterFakeProcessGroup(size=self.args.target_tensor_parallel_size)
+        fake_ep_group = _ConverterFakeProcessGroup(size=self.args.target_expert_parallel_size)
+        mpu._TENSOR_MODEL_PARALLEL_GROUP = fake_tp_group
+        mpu._EXPERT_MODEL_PARALLEL_GROUP = fake_ep_group
         fused_kernels.load(self.margs)
         
         try:
@@ -344,21 +300,7 @@ class MegatronCheckpointSaverBase:
         """
         Get the local model for a certain (pp,ep,tp).
         """
-        try:
-            from megatron.core import mpu
-        except ModuleNotFoundError as e:
-            print(f"Unable to import required Megatron modules: {e}")
-            sys.exit(1)
-
         if self.models[pp_rank][ep_rank][tp_rank] is None:
-            # Update parallel ranks before building the model so that
-            # VocabParallelEmbedding and other TP-sharded layers are initialized
-            # with the correct partition indices
-            mpu.set_tensor_model_parallel_rank(tp_rank)
-            mpu.set_expert_model_parallel_rank(ep_rank)
-            self.fake_tp_group.set_rank(tp_rank)
-            self.fake_ep_group.set_rank(ep_rank)
-
             pre_process = True if pp_rank == 0 else False
             post_process = True if pp_rank == self.args.target_pipeline_parallel_size - 1 else False
             self.models[pp_rank][ep_rank][tp_rank] = self.model_provider(pre_process, post_process).to(self.md.params_dtype)
@@ -381,37 +323,6 @@ class MegatronCheckpointSaverBase:
         self.receive_model()
 
         self.save_local_models_to_checkpoint()
-
-        print("Done!")
-
-    def save_sequential(self):
-        """
-        Memory-efficient version of save() that processes one TP shard at a time.
-
-        This method is designed for large models where holding all TP shards
-        simultaneously would exceed available memory. It:
-        1. Receives all layer data from the loader and stores it temporarily
-        2. For each TP rank, builds one model, copies weights, saves checkpoint, releases
-
-        Use this instead of save() when converting large models (>100B parameters)
-        with high tensor parallelism on memory-constrained systems.
-        """
-        self.insert_megatron_path_and_check_te()
-
-        self.receive_checkpoint_metadata()
-
-        self.parse_megatron_args()
-
-        self.initialize_megatron_env()
-
-        # Don't initialize models yet - we'll build them one at a time
-        self.models = self.initialize_models()
-
-        # Receive all data from loader and store it
-        self.receive_and_store_model_data()
-
-        # Process each TP shard sequentially
-        self.save_models_sequentially()
 
         print("Done!")
 
@@ -438,32 +349,6 @@ class MegatronCheckpointSaverBase:
                         tensor_rank=tp_rank)
                     # release the uselese model parts
                     self.models[pp_rank][ep_rank][tp_rank] = None
-
-    def receive_and_store_model_data(self):
-        """
-        Receive all model data from the loader and store it for later processing.
-
-        This is the first phase of memory-efficient conversion. Instead of building
-        models while receiving data, we just store the raw tensors. The tensors will
-        be processed one TP shard at a time in save_models_sequentially().
-
-        Must be overridden by subclasses to handle model-specific data.
-        """
-        raise NotImplementedError("Subclass must implement receive_and_store_model_data()")
-
-    def save_models_sequentially(self):
-        """
-        Build, populate, and save models one TP shard at a time.
-
-        This is the second phase of memory-efficient conversion. For each TP rank:
-        1. Build the model for that rank
-        2. Copy the appropriate weight slice
-        3. Save the checkpoint
-        4. Delete the model to free memory
-
-        Must be overridden by subclasses to handle model-specific data.
-        """
-        raise NotImplementedError("Subclass must implement save_models_sequentially()")
 
     def receive_lm(self, schema, prefix=None):
         """

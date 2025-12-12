@@ -53,11 +53,10 @@ try:
         TEColumnParallelLinear,
         TELinear,
         set_save_original_input,
-        HAVE_TE,
     )
     from megatron.core.post_training.modelopt.layers import Linear
 
-    # HAVE_TE comes from transformer_engine.py and correctly reflects TE availability
+    HAVE_TE = True
 except ImportError:
     TEColumnParallelLinear, TELinear, Linear, set_save_original_input = None, None, None, None
     HAVE_TE = False
@@ -143,7 +142,6 @@ class MultiLatentAttention(Attention):
                 mscale=self.config.mscale,
                 mscale_all_dim=self.config.mscale_all_dim,
                 cp_group=self.pg_collection.cp,
-                use_cpu_initialization=self.config.use_cpu_initialization,
             )
         else:
             raise ValueError(
@@ -180,7 +178,6 @@ class MultiLatentAttention(Attention):
 
         if (
             HAVE_TE
-            and TELinear is not None
             and isinstance(self.linear_proj, TELinear)
             and (
                 (
@@ -267,7 +264,7 @@ class MultiLatentAttention(Attention):
             value = value.contiguous()
 
         # ==================================
-        # Apply sparse attention mask (DSA)
+        # Apply sparse attention mask (DSA) - DeepSeek V3.2
         # ==================================
         if hasattr(self, 'indexer') and self.indexer is not None:
             seq_len = hidden_states.shape[0]
@@ -422,14 +419,13 @@ class MLASelfAttention(MultiLatentAttention):
 
         else:
             q_down_proj_kwargs = {}
-            if TELinear is not None and submodules.linear_q_down_proj in [TELinear]:
+            if submodules.linear_q_down_proj in [TELinear]:
                 q_down_proj_kwargs['parallel_mode'] = 'duplicated'
             elif submodules.linear_q_down_proj in [
-                x for x in [Linear, TEColumnParallelLinear, ColumnParallelLinear] if x is not None
+                Linear,
+                TEColumnParallelLinear,
+                ColumnParallelLinear,
             ]:
-                q_down_proj_kwargs['gather_output'] = False
-            elif not HAVE_TE:
-                # When TE is not available, use default kwargs for ColumnParallelLinear
                 q_down_proj_kwargs['gather_output'] = False
             else:
                 raise ValueError(f"Unsupported linear_q_down_proj: {submodules.linear_q_down_proj}")
@@ -462,14 +458,13 @@ class MLASelfAttention(MultiLatentAttention):
             )
 
         kv_down_proj_kwargs = {}
-        if TELinear is not None and submodules.linear_kv_down_proj in [TELinear]:
+        if submodules.linear_kv_down_proj in [TELinear]:
             kv_down_proj_kwargs['parallel_mode'] = 'duplicated'
         elif submodules.linear_kv_down_proj in [
-            x for x in [Linear, TEColumnParallelLinear, ColumnParallelLinear] if x is not None
+            Linear,
+            TEColumnParallelLinear,
+            ColumnParallelLinear,
         ]:
-            kv_down_proj_kwargs['gather_output'] = False
-        elif not HAVE_TE:
-            # When TE is not available, use default kwargs for ColumnParallelLinear
             kv_down_proj_kwargs['gather_output'] = False
         else:
             raise ValueError(f"Unsupported linear_kv_down_proj: {submodules.linear_kv_down_proj}")
@@ -608,6 +603,7 @@ class MLASelfAttention(MultiLatentAttention):
                     q_compressed = scatter_to_sequence_parallel_region(q_compressed)
 
             # Store q_compressed for Lightning Indexer (detach during sparse training per tech report)
+            # DeepSeek V3.2 DSA
             if self.indexer is not None:
                 self._q_compressed_for_indexer = (
                     q_compressed.detach() if self.training else q_compressed
