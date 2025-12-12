@@ -148,6 +148,8 @@ def load_args_from_checkpoint(args):
     args.moe_router_topk = config.get("num_experts_per_tok", 8)
     args.num_shared_experts = config.get("n_shared_experts", 0)
     args.moe_intermediate_size = config.get("moe_intermediate_size", args.ffn_hidden_size)
+    # Megatron uses moe_ffn_hidden_size for MoE expert FFN dimensions
+    args.moe_ffn_hidden_size = args.moe_intermediate_size
     args.first_k_dense_replace = config.get("first_k_dense_replace", 0)
     args.moe_layer_freq = config.get("moe_layer_freq", 1)
 
