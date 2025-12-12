@@ -364,12 +364,16 @@ def _load_checkpoint(queue, args):
     """Main checkpoint loading function."""
     verify_transformers_version()
 
-    # Setup paths
-    sys.path.append(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
-    )
+    # Setup paths - megatron_path takes priority
     if args.megatron_path is not None:
         sys.path.insert(0, args.megatron_path)
+    else:
+        sys.path.append(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
+        )
+
+    print(f"DEBUG: megatron_path = {args.megatron_path}")
+    print(f"DEBUG: sys.path[0:3] = {sys.path[0:3]}")
 
     try:
         from megatron.core import mpu
