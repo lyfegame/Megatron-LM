@@ -40,9 +40,13 @@ class MegatronCheckpointSaverBase:
         Check for an appropriate installation of transformer engine and add megatron to sys path.
         """
         # Transformer engine >= 0.12.0, for CPU initialization.
-        te_version = PkgVersion(version("transformer-engine"))
-        assert te_version >= PkgVersion("0.12.0"), \
-            "transformer engine version: %s (>=0.12.0 required)." % te_version
+        # If transformer-engine is not installed, we proceed without it (CPU-only conversion)
+        try:
+            te_version = PkgVersion(version("transformer-engine"))
+            assert te_version >= PkgVersion("0.12.0"), \
+                "transformer engine version: %s (>=0.12.0 required)." % te_version
+        except Exception:
+            print("Warning: transformer-engine not installed. Proceeding with CPU-only conversion.")
 
         # Search in directory above this
         sys.path.append(os.path.abspath(
