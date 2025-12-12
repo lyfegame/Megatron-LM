@@ -547,7 +547,11 @@ def get_pg_size(group=None):
     Returns:
         int: World size (1 if distributed not initialized or group is None, else group.size())
     """
-    if not torch.distributed.is_initialized() or group is None:
+    # If a group is explicitly provided, use its size even if distributed is not initialized
+    # This is needed for checkpoint conversion which uses fake process groups
+    if group is not None:
+        return group.size()
+    if not torch.distributed.is_initialized():
         return 1
     return group.size()
 
@@ -561,7 +565,11 @@ def get_pg_rank(group=None):
     Returns:
         int: Rank (0 if distributed not initialized or group is None, else group.rank())
     """
-    if not torch.distributed.is_initialized() or group is None:
+    # If a group is explicitly provided, use its rank even if distributed is not initialized
+    # This is needed for checkpoint conversion which uses fake process groups
+    if group is not None:
+        return group.rank()
+    if not torch.distributed.is_initialized():
         return 0
     return group.rank()
 
