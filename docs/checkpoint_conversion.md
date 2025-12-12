@@ -336,6 +336,100 @@ AssertionError: Using tensor model parallelism or context parallelism require se
 
 **Solution:** Add `torch.cuda.is_available()` check in `megatron/training/arguments.py` to skip this validation for CPU-only mode.
 
+#### 12. Fused Kernels CUDA_HOME Check (Commit `114fa2abc`)
+
+**Problem:** `fused_kernels.load()` fails when CUDA_HOME is not set on CPU-only systems:
+```
+RuntimeError: CUDA_HOME environment variable is not set
+```
+
+**Solution:** Add early return in `megatron/legacy/fused_kernels/__init__.py` when CUDA is unavailable:
+```python
+def load(args):
+    if not torch.cuda.is_available() or cpp_extension.CUDA_HOME is None:
+        return
+```
+
+#### 13. CoreMoELocalSchema for Non-TE Mode (Commit `41c857fa6`)
+
+**Problem:** MoE models required Transformer Engine, causing assertion when using `--saver-transformer-impl local`:
+```
+AssertionError: transformer_impl must be transformer_engine for MoE models
+```
+
+**Solution:** Add `CoreMoELocalSchema` class in `tools/checkpoint/schema_core.py` to support MoE with local transformer implementation.
+
+#### 14. Sequence Parallel for Local Transformer Impl (Commit `354f4de7c`)
+
+**Problem:** Sequence parallel requires APEX/TE fused layer norms which aren't available with local transformer implementation:
+```
+AssertionError: sequence parallel not supported by torch LayerNorm
+```
+
+**Solution:** Disable `sequence_parallel` when using local transformer impl in `tools/checkpoint/saver_base.py`:
+```python
+if self.args.saver_transformer_impl == "local":
+    margs.sequence_parallel = False
+```
+
+#### 15. TP/EP Rank Update for Model Building (Commit `8debca759`)
+
+**Problem:** When building TP-sharded models, the fake process group ranks weren't updated, causing all models to be built with rank 0:
+```
+RuntimeError: The size of tensor a (128000) must match the size of tensor b (16000)
+```
+
+**Solution:** Store `fake_tp_group` and `fake_ep_group` as instance variables in `saver_base.py` and update their ranks before building each model in `get_local_model()`:
+```python
+def get_local_model(self, pp_rank, ep_rank, tp_rank):
+    mpu.set_tensor_model_parallel_rank(tp_rank)
+    mpu.set_expert_model_parallel_rank(ep_rank)
+    self.fake_tp_group.set_rank(tp_rank)
+    self.fake_ep_group.set_rank(ep_rank)
+    # ... build model
+```
+
+#### 16. get_tensor_model_parallel_group_if_none for Non-Distributed Mode (Commit `e6414a0df`)
+
+**Problem:** When `torch.distributed` is not initialized, `get_tensor_model_parallel_group_if_none()` returned `None` unconditionally, causing `VocabParallelEmbedding` to use `get_pg_size(None) = 1`:
+```
+RuntimeError: The size of tensor a (128000) must match the size of tensor b (16000)
+```
+
+**Solution:** Modify `get_tensor_model_parallel_group_if_none()` in `megatron/core/utils.py` to return the mpu process group even when distributed is not initialized:
+```python
+if not torch.distributed.is_initialized():
+    if tp_group is None:
+        tp_group = parallel_state.get_tensor_model_parallel_group(check_initialized=False)
+    return tp_group
+```
+
+#### 17. get_pg_size/get_pg_rank to Use Provided Group (Commit `07bea26fa`)
+
+**Problem:** Even after fix #16, `get_pg_size()` and `get_pg_rank()` still returned defaults (1 and 0) when `torch.distributed` was not initialized, ignoring the provided fake process group:
+```python
+# Previous behavior (broken)
+if not torch.distributed.is_initialized() or group is None:
+    return 1  # Always returned 1 for size!
+```
+
+**Solution:** Modify functions to use the provided group's methods first:
+```python
+def get_pg_size(group=None):
+    if group is not None:
+        return group.size()  # Use provided group even if distributed not initialized
+    if not torch.distributed.is_initialized():
+        return 1
+    return group.size()
+
+def get_pg_rank(group=None):
+    if group is not None:
+        return group.rank()  # Use provided group even if distributed not initialized
+    if not torch.distributed.is_initialized():
+        return 0
+    return group.rank()
+```
+
 ### Conversion Progress (Dec 12, 2025)
 
 **V3 HF→Megatron conversion on `deepseek-v3-converter` (m2-ultramem-208, 5.7TB RAM):**
