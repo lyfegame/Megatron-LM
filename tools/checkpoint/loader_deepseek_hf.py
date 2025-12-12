@@ -513,7 +513,11 @@ def _load_checkpoint(queue, args):
     # Distributed optimizer group
     mpu._INTRA_DISTRIBUTED_OPTIMIZER_INSTANCE_GROUP = fake_dp_group
 
-    fused_kernels.load(margs)
+    # Try to load fused kernels, but skip if CUDA is not available (CPU-only conversion)
+    try:
+        fused_kernels.load(margs)
+    except Exception as e:
+        print(f"Warning: Could not load fused CUDA kernels ({e}). Proceeding without them.")
 
     # Build metadata
     md = types.SimpleNamespace()
