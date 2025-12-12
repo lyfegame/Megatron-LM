@@ -414,6 +414,7 @@ def _load_checkpoint(queue, args):
         args.load_dir,
         '--no-one-logger',
         '--no-persist-layer-norm',  # Required when Apex is not available
+        '--no-gradient-accumulation-fusion',  # Required when APEX/CUDA is not available
         # MLA-specific
         '--multi-latent-attention',
     ]
