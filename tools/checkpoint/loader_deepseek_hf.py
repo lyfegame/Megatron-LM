@@ -212,7 +212,8 @@ def set_mla_attn_state(args, layer, hf_layer):
                 attn.linear_q_down_proj.layer_norm_weight.data.copy_(hf_attn.q_a_layernorm.weight)
             else:
                 attn.linear_q_down_proj.weight.data.copy_(hf_attn.q_a_proj.weight)
-                if hasattr(attn, 'q_layernorm'):
+                # Only copy layernorm weights if it's a real LayerNorm (not IdentityOp)
+                if hasattr(attn, 'q_layernorm') and hasattr(attn.q_layernorm, 'weight'):
                     attn.q_layernorm.weight.data.copy_(hf_attn.q_a_layernorm.weight)
         # Up projection
         if hasattr(attn, 'linear_q_up_proj'):
@@ -230,7 +231,8 @@ def set_mla_attn_state(args, layer, hf_layer):
             attn.linear_kv_down_proj.layer_norm_weight.data.copy_(hf_attn.kv_a_layernorm.weight)
         else:
             attn.linear_kv_down_proj.weight.data.copy_(hf_attn.kv_a_proj_with_mqa.weight)
-            if hasattr(attn, 'kv_layernorm'):
+            # Only copy layernorm weights if it's a real LayerNorm (not IdentityOp)
+            if hasattr(attn, 'kv_layernorm') and hasattr(attn.kv_layernorm, 'weight'):
                 attn.kv_layernorm.weight.data.copy_(hf_attn.kv_a_layernorm.weight)
 
     if hasattr(attn, 'linear_kv_up_proj'):
