@@ -23,13 +23,36 @@ cp megatron-bridge-v32/deepseek_v32_bridge.py \
 
 cp megatron-bridge-v32/convert_deepseek_v32.py \
    Megatron-Bridge/examples/conversion/
-
-# Update __init__.py - add these imports:
-# from megatron.bridge.models.deepseek.deepseek_v32_bridge import (
-#     DeepSeekV32Bridge,
-#     DeepSeekV32ModelProvider,
-# )
 ```
+
+### Required `__init__.py` Changes
+
+Update `Megatron-Bridge/src/megatron/bridge/models/deepseek/__init__.py`:
+
+```python
+# Add this import after the other bridge imports:
+from megatron.bridge.models.deepseek.deepseek_v32_bridge import (  # noqa: F401
+    DeepSeekV32Bridge,
+    DeepSeekV32ModelProvider,
+)
+
+# Add to __all__ list:
+__all__ = [
+    "DeepSeekModelProvider",
+    "DeepSeekV2LiteModelProvider",
+    "DeepSeekV2ModelProvider",
+    "DeepSeekV3ModelProvider",
+    "DeepSeekV32ModelProvider",  # <-- Add this
+    "MoonlightModelProvider16B",
+    "DeepSeekProvider",
+    "DeepSeekV2LiteProvider",
+    "DeepSeekV2Provider",
+    "DeepSeekV3Provider",
+    "MoonlightProvider",
+]
+```
+
+Full reference `__init__.py` is available at `megatron-bridge-v32/__init__deepseek.py.patch`.
 
 ## What's Implemented
 
