@@ -4,6 +4,33 @@
 
 This document describes the Megatron Bridge implementation for DeepSeek V3.2 checkpoint conversion. The bridge enables converting HuggingFace V3.2 checkpoints (including FP8 quantized) to Megatron format for training/fine-tuning.
 
+## Source Files Location
+
+The bridge source files are preserved in **`megatron-bridge-v32/`** directory:
+- `deepseek_v32_bridge.py` - Main bridge implementation with FP8 dequantization
+- `convert_deepseek_v32.py` - CLI conversion script
+- `__init__deepseek.py.patch` - Shows required `__init__.py` modifications
+
+### To Apply to Megatron-Bridge Installation
+
+```bash
+# Clone Megatron-Bridge (if not already)
+git clone https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
+
+# Copy the V3.2 bridge files
+cp megatron-bridge-v32/deepseek_v32_bridge.py \
+   Megatron-Bridge/src/megatron/bridge/models/deepseek/
+
+cp megatron-bridge-v32/convert_deepseek_v32.py \
+   Megatron-Bridge/examples/conversion/
+
+# Update __init__.py - add these imports:
+# from megatron.bridge.models.deepseek.deepseek_v32_bridge import (
+#     DeepSeekV32Bridge,
+#     DeepSeekV32ModelProvider,
+# )
+```
+
 ## What's Implemented
 
 ### Files Created
