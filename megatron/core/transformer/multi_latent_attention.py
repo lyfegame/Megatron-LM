@@ -75,6 +75,9 @@ class MLASelfAttentionSubmodules:
     linear_proj: Union[ModuleSpec, type] = None
     q_layernorm: Union[ModuleSpec, type] = None
     kv_layernorm: Union[ModuleSpec, type] = None
+    # V3.2 Lightning Indexer for sparse attention
+    lightning_indexer: Union[ModuleSpec, type] = None
+    sparse_attention: Union[ModuleSpec, type] = None
 
 
 class MultiLatentAttention(Attention):
@@ -265,8 +268,59 @@ class MultiLatentAttention(Attention):
         # ==================================
         # core attention computation
         # ==================================
+        # V3.2 Sparse Attention path
+        use_sparse_attention = (
+            hasattr(self, 'lightning_indexer')
+            and self.lightning_indexer is not None
+            and self.config.use_sparse_attention
+            and self.training  # For now, sparse attention only during training
+        )
+
+        if use_sparse_attention:
+            # Get RoPE for indexer (need to recompute for indexer's non-interleaved layout)
+            rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(
+                inference_context, None, hidden_states, self.config, packed_seq_params
+            )
+            if self.config.rope_type == "rope":
+                indexer_rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
+            else:
+                indexer_rotary_pos_emb, _ = self.rotary_pos_emb(rotary_seq_len)
+
+            # Get q_compressed from the subclass (stored during get_query_key_value_tensors)
+            q_compressed = getattr(self, '_q_compressed_for_indexer', None)
+            if q_compressed is None:
+                raise RuntimeError(
+                    "q_compressed not available for indexer. Ensure get_query_key_value_tensors "
+                    "stores _q_compressed_for_indexer when sparse attention is enabled."
+                )
+
+            # Compute top-K indices using Lightning Indexer
+            topk_indices = self.lightning_indexer(
+                hidden_states=hidden_states,
+                q_compressed=q_compressed,
+                rotary_pos_emb=indexer_rotary_pos_emb,
+                attention_mask=attention_mask,
+            )
+
+            # Use sparse attention instead of full attention
+            core_attn_out = self.sparse_attention(
+                query=query,
+                key=key,
+                value=value,
+                topk_indices=topk_indices,
+                attention_mask=attention_mask,
+            )
+
+            # Reshape output to match expected format: [seq, batch, n_heads * v_head_dim]
+            core_attn_out = core_attn_out.view(
+                core_attn_out.size(0), core_attn_out.size(1), -1
+            )
+
+            # Clear stored q_compressed
+            self._q_compressed_for_indexer = None
+
         # Need corresponding TE change
-        if self.checkpoint_core_attention and self.training:
+        elif self.checkpoint_core_attention and self.training:
             core_attn_out = self._checkpointed_attention_forward(
                 query, key, value, attention_mask, packed_seq_params=packed_seq_params
             )
@@ -465,6 +519,41 @@ class MLASelfAttention(MultiLatentAttention):
             eps=self.config.layernorm_epsilon,
         )
 
+        # V3.2 Lightning Indexer for sparse attention
+        if self.config.use_sparse_attention:
+            from megatron.core.transformer.lightning_indexer import LightningIndexer
+            from megatron.core.transformer.sparse_attention import SparseAttention
+
+            if submodules.lightning_indexer is not None:
+                self.lightning_indexer = build_module(
+                    submodules.lightning_indexer,
+                    config=self.config,
+                    layer_number=layer_number,
+                )
+            else:
+                # Default to LightningIndexer if no spec provided
+                from megatron.core.transformer.lightning_indexer import (
+                    LightningIndexerSubmodules,
+                )
+
+                self.lightning_indexer = LightningIndexer(
+                    config=self.config,
+                    submodules=LightningIndexerSubmodules(),
+                    layer_number=layer_number,
+                )
+
+            if submodules.sparse_attention is not None:
+                self.sparse_attention = build_module(
+                    submodules.sparse_attention,
+                    config=self.config,
+                )
+            else:
+                # Default to SparseAttention
+                self.sparse_attention = SparseAttention(config=self.config)
+        else:
+            self.lightning_indexer = None
+            self.sparse_attention = None
+
     def get_query_key_value_tensors(
         self,
         hidden_states,
@@ -547,6 +636,10 @@ class MLASelfAttention(MultiLatentAttention):
                     q_compressed = scatter_to_sequence_parallel_region(q_compressed)
         else:
             q_compressed = hidden_states
+
+        # V3.2: Store q_compressed for Lightning Indexer if sparse attention is enabled
+        if self.config.use_sparse_attention and self.lightning_indexer is not None:
+            self._q_compressed_for_indexer = q_compressed
 
         # if linear_kv_down_proj is ColumnParallelLinear:
         #     kv_combined: [s, b, (kv_lora_rank + qk_pos_emb_head_dim) / TP]

@@ -1697,8 +1697,25 @@ class MLATransformerConfig(TransformerConfig):
 
     cache_mla_latents: bool = False
     """Cache the low dimensional tensors for MLA rather than full KV cache.
-       This is only for the dynamic inference backend and requires that 
+       This is only for the dynamic inference backend and requires that
        Flash MLA is installed."""
+
+    # V3.2 Lightning Indexer parameters for sparse attention
+    index_n_heads: Optional[int] = None
+    """Number of attention heads in the Lightning Indexer for sparse attention.
+    When set (e.g., 64 for DeepSeek V3.2), enables sparse attention via indexing."""
+
+    index_head_dim: Optional[int] = None
+    """Head dimension for the Lightning Indexer (e.g., 128 for DeepSeek V3.2)."""
+
+    index_topk: Optional[int] = None
+    """Number of top-K tokens to select for sparse attention (e.g., 2048 for DeepSeek V3.2).
+    When None or 0, full attention is used instead of sparse attention."""
+
+    @property
+    def use_sparse_attention(self) -> bool:
+        """Returns True if sparse attention via Lightning Indexer should be used."""
+        return self.index_topk is not None and self.index_topk > 0
 
     def __post_init__(self):
         super().__post_init__()
@@ -1709,3 +1726,23 @@ class MLATransformerConfig(TransformerConfig):
             assert (
                 self.apply_rope_fusion is False
             ), "Rope Fusion is not compatible with caching latents"
+
+        # V3.2 Lightning Indexer validation
+        if self.use_sparse_attention:
+            if self.index_n_heads is None:
+                raise ValueError(
+                    "index_n_heads must be specified when index_topk is set for sparse attention."
+                )
+            if self.index_head_dim is None:
+                raise ValueError(
+                    "index_head_dim must be specified when index_topk is set for sparse attention."
+                )
+            if self.index_n_heads % self.tensor_model_parallel_size != 0:
+                raise ValueError(
+                    f"index_n_heads ({self.index_n_heads}) must be divisible by "
+                    f"tensor_model_parallel_size ({self.tensor_model_parallel_size})."
+                )
+            if not self.multi_latent_attention:
+                raise ValueError(
+                    "Sparse attention via Lightning Indexer requires multi_latent_attention=True."
+                )
