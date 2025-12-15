@@ -1,0 +1,51 @@
+{
+  "description": "Reference prompts and expected outputs for DeepSeek V3.2 debugging",
+  "settings": {
+    "temperature": 0.0,
+    "max_new_tokens": 200
+  },
+  "prompts": [
+    {
+      "id": 0,
+      "name": "simple_math",
+      "directory": "prompt_0_simple_math",
+      "prompt": "What is 2+2?",
+      "expected_output": "2 + 2 = 4"
+    },
+    {
+      "id": 1,
+      "name": "greeting",
+      "directory": "prompt_1_greeting",
+      "prompt": "Hello, how are you?",
+      "expected_output": "Hello! I'm doing well, thank you for asking! How are you today?"
+    },
+    {
+      "id": 2,
+      "name": "code_generation",
+      "directory": "prompt_2_code_generation",
+      "prompt": "Write a Python function to check if a number is prime.",
+      "expected_output": "def is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True"
+    },
+    {
+      "id": 3,
+      "name": "explanation",
+      "directory": "prompt_3_explanation",
+      "prompt": "Explain the theory of relativity in simple terms.",
+      "expected_output": "At its heart, relativity is about understanding how space, time..."
+    },
+    {
+      "id": 4,
+      "name": "long_context",
+      "directory": "prompt_4_long_context",
+      "prompt": "Document about ML followed by: What are the three main categories?",
+      "expected_output": "1. Supervised learning\n2. Unsupervised learning\n3. Reinforcement learning"
+    },
+    {
+      "id": 5,
+      "name": "sparse_trigger",
+      "directory": "prompt_5_sparse_trigger",
+      "prompt_file": "long_prompt_sparse.txt",
+      "expected_output": "Three main techniques: MLA, Lightning Indexer, and RoPE extensions"
+    }
+  ]
+}
