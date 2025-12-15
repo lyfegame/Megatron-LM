@@ -111,6 +111,11 @@ class CPUOffloadWrapper:
         # - decoder.layers (transformer layers)
         # - output_layer (lm_head)
 
+        print(f"Analyzing model structure: {type(self.model).__name__}")
+        print(f"  Model attributes: {[a for a in dir(self.model) if not a.startswith('_')][:20]}")
+
+        # Find embedding
+        self.embedding = None
         if hasattr(self.model, 'embedding'):
             self.embedding = self.model.embedding
         elif hasattr(self.model, 'language_model') and hasattr(self.model.language_model, 'embedding'):
@@ -120,6 +125,7 @@ class CPUOffloadWrapper:
             for name, module in self.model.named_modules():
                 if 'embedding' in name.lower() and hasattr(module, 'weight'):
                     self.embedding = module
+                    print(f"  Found embedding via search: {name}")
                     break
 
         # Find decoder layers
@@ -132,18 +138,31 @@ class CPUOffloadWrapper:
             elif hasattr(self.model.language_model, 'encoder'):
                 self.layers = self.model.language_model.encoder.layers
 
-        # Find output layer
-        if hasattr(self.model, 'output_layer'):
-            self.output_layer = self.model.output_layer
-        elif hasattr(self.model, 'lm_head'):
-            self.output_layer = self.model.lm_head
-        else:
-            self.output_layer = None
+        # Find output layer - check multiple locations
+        self.output_layer = None
+        for attr in ['output_layer', 'lm_head', 'head']:
+            if hasattr(self.model, attr):
+                self.output_layer = getattr(self.model, attr)
+                print(f"  Found output layer at model.{attr}")
+                break
+            if hasattr(self.model, 'language_model') and hasattr(self.model.language_model, attr):
+                self.output_layer = getattr(self.model.language_model, attr)
+                print(f"  Found output layer at model.language_model.{attr}")
+                break
+
+        # If still not found, search by name
+        if self.output_layer is None:
+            for name, module in self.model.named_modules():
+                if 'output' in name.lower() and hasattr(module, 'weight'):
+                    self.output_layer = module
+                    print(f"  Found output layer via search: {name}")
+                    break
 
         print(f"Model structure analyzed:")
-        print(f"  - Embedding: {type(self.embedding).__name__ if hasattr(self, 'embedding') else 'Not found'}")
+        print(f"  - Embedding: {type(self.embedding).__name__ if self.embedding else 'Not found'}")
         print(f"  - Layers: {len(self.layers) if self.layers else 'Not found'}")
         print(f"  - Output layer: {type(self.output_layer).__name__ if self.output_layer else 'Not found'}")
+        import sys; sys.stdout.flush()
 
     def _move_to_device(self, module, device):
         """Move module to device."""
@@ -217,7 +236,11 @@ class CPUOffloadWrapper:
             # If no separate output layer, use embedding weight (tied embeddings)
             print("  [Offload] Using tied embeddings for output...")
             self._move_to_device(self.embedding, self.device)
-            logits = F.linear(hidden_states, self.embedding.word_embeddings.weight)
+            # Megatron uses .weight directly, not .word_embeddings.weight
+            emb_weight = getattr(self.embedding, 'weight', None)
+            if emb_weight is None and hasattr(self.embedding, 'word_embeddings'):
+                emb_weight = self.embedding.word_embeddings.weight
+            logits = F.linear(hidden_states, emb_weight)
             self._move_to_cpu(self.embedding)
 
         return logits.to(self.cpu_device)
