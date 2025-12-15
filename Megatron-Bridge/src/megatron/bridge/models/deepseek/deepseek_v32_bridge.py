@@ -54,6 +54,7 @@ def _dequantize_fp8_weight(
     scale: torch.Tensor,
     block_size: int = FP8_BLOCK_SIZE,
     target_dtype: torch.dtype = torch.bfloat16,
+    is_scale_inv: bool = False,
 ) -> torch.Tensor:
     """
     Dequantize FP8 (float8_e4m3fn) weight tensor using block-wise scales.
@@ -61,13 +62,16 @@ def _dequantize_fp8_weight(
     This implements the dequantization formula from DeepSeek V3.2:
     - Weights are quantized with block_size x block_size blocks
     - Each block has an associated scale factor
-    - Dequantization: weight_bf16 = weight_fp8 * scale
+    - Dequantization:
+      - If scale: weight_bf16 = weight_fp8 * scale
+      - If scale_inv: weight_bf16 = weight_fp8 / scale_inv
 
     Args:
         weight: FP8 weight tensor of shape (out_features, in_features)
         scale: Scale tensor of shape (out_features // block_size, in_features // block_size)
         block_size: Block size used in quantization (default 128)
         target_dtype: Target dtype for dequantized weights (default bfloat16)
+        is_scale_inv: If True, scale is the inverse scale (divide instead of multiply)
 
     Returns:
         Dequantized weight tensor of shape (out_features, in_features) in target_dtype
@@ -101,8 +105,12 @@ def _dequantize_fp8_weight(
     weight_flat = weight_blocked.view(-1, block_size * block_size)
 
     # Apply scale (scale is [out_blocks, in_blocks], flatten to [out_blocks * in_blocks])
+    # For scale_inv, we divide; for regular scale, we multiply
     scale_flat = scale.view(-1, 1).float()
-    weight_dequant = (weight_flat.float() * scale_flat).to(target_dtype)
+    if is_scale_inv:
+        weight_dequant = (weight_flat.float() / scale_flat).to(target_dtype)
+    else:
+        weight_dequant = (weight_flat.float() * scale_flat).to(target_dtype)
 
     # Reshape back: [out_blocks, in_blocks, block_size, block_size]
     weight_dequant = weight_dequant.view(out_blocks, in_blocks, block_size, block_size)
@@ -277,30 +285,36 @@ class DeepSeekV32Bridge(MegatronModelBridge):
             # If weight is FP8, look for scale tensor and dequantize
             if hf_weights.dtype == torch.float8_e4m3fn:
                 # Try common scale naming conventions
+                # Note: DeepSeek V3.2 uses weight_scale_inv (inverse scale)
                 scale_keys = [
-                    hf_param + "_scale",  # weight_scale
-                    hf_param.replace(".weight", ".scale"),  # .scale
-                    hf_param.replace(".weight", "_scale"),  # _scale
+                    (hf_param + "_scale_inv", True),   # weight_scale_inv (DeepSeek V3.2)
+                    (hf_param + "_scale", False),      # weight_scale
+                    (hf_param.replace(".weight", ".scale_inv"), True),  # .scale_inv
+                    (hf_param.replace(".weight", ".scale"), False),     # .scale
+                    (hf_param.replace(".weight", "_scale"), False),     # _scale
                 ]
 
                 scale_tensor = None
-                for scale_key in scale_keys:
+                is_scale_inv = False
+                for scale_key, is_inv in scale_keys:
                     if scale_key in hf_state_dict:
                         scale_tensor = hf_state_dict[scale_key]
+                        is_scale_inv = is_inv
                         break
 
                 if scale_tensor is not None:
-                    logger.info(f"Dequantizing FP8 weight: {hf_param}")
+                    logger.info(f"Dequantizing FP8 weight: {hf_param} (scale_inv={is_scale_inv})")
                     hf_weights = _dequantize_fp8_weight(
                         hf_weights,
                         scale_tensor,
                         block_size=FP8_BLOCK_SIZE,
                         target_dtype=torch.bfloat16,
+                        is_scale_inv=is_scale_inv,
                     )
                 else:
                     logger.warning(
                         f"FP8 weight {hf_param} found but no scale tensor. "
-                        f"Tried: {scale_keys}. Converting directly to bfloat16."
+                        f"Tried: {[k for k, _ in scale_keys]}. Converting directly to bfloat16."
                     )
                     hf_weights = hf_weights.to(torch.bfloat16)
 
