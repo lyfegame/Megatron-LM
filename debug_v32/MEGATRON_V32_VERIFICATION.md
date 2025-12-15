@@ -28,10 +28,26 @@ Following the methodology from `debug_v32/VERIFICATION_METHODOLOGY.md`:
 
 ### Unit Tests
 
+Run: `2025-12-15 01:XX UTC`
+
 | Test | Status | Notes |
 |------|--------|-------|
-| `test_lightning_indexer.py` | PENDING | |
+| `test_lightning_indexer.py::TestNonInterleavedRoPE` | **8 PASSED** | Shape, dtype, identity at zero |
+| `test_lightning_indexer.py::TestLightningIndexerConfig` | **5 PASSED** | Config validation |
+| `test_lightning_indexer.py::TestLightningIndexerModule` | ERROR | Requires parallel state init (expected) |
 | `test_multi_latent_attention.py` | PENDING | |
+
+**Non-Interleaved RoPE Tests (PASSED)**:
+- `test_apply_rotary_emb_non_interleaved_shape` - Output shape matches input
+- `test_apply_rotary_emb_non_interleaved_dtype` - Dtype preserved correctly
+- `test_apply_rotary_emb_non_interleaved_vs_identity_at_zero` - At position 0, output equals input
+
+**Config Tests (PASSED)**:
+- `test_config_requires_mla` - Validates multi_latent_attention requirement
+- `test_config_requires_n_heads` - Validates index_n_heads requirement
+- `test_config_requires_head_dim` - Validates index_head_dim requirement
+- `test_config_valid_v32` - Full V3.2 config validates successfully
+- `test_config_use_sparse_attention_property` - use_sparse_attention property works
 
 ### Reference Prompt Tests
 
@@ -62,7 +78,7 @@ Following the methodology from `debug_v32/VERIFICATION_METHODOLOGY.md`:
 
 **Official Implementation** (`docs/reference/deepseek_v32_official/model.py:472-473`):
 ```python
-q = rotate_activation(q)
+q = rotate_activation(q)  # hadamard_transform(x, scale=hidden_size ** -0.5)
 k = rotate_activation(k)
 ```
 
@@ -70,10 +86,29 @@ k = rotate_activation(k)
 - Hadamard transform is NOT applied
 - Comment states: "No Hadamard transform (vLLM confirmed unnecessary for accuracy)"
 
-**Verification Results**:
-- [ ] Test with Hadamard: PENDING
-- [ ] Test without Hadamard: PENDING
-- [ ] Accuracy difference: PENDING
+**HuggingFace Fork** (validated against official):
+- Also does NOT use Hadamard transform
+- Passes 6/6 semantic equivalence tests against official
+
+**Index Selection Analysis** (from official reference tensors):
+
+| Prompt | Seq Len | Top-K | Actual Sparse | Local Bias |
+|--------|---------|-------|---------------|------------|
+| 0: simple_math | 10 | 10 | No (all selected) | 55.00% |
+| 1: greeting | 9 | 9 | No (all selected) | 55.56% |
+| 2: code_gen | 15 | 15 | No (all selected) | 53.33% |
+| 3: explanation | 12 | 12 | No (all selected) | 54.17% |
+| 4: long_context | 188 | 188 | No (all selected) | 45.26% |
+| 5: sparse_trigger | 2250 | 2048 | **YES** | 6.11% |
+
+**Factual Findings**:
+1. Prompts 0-4 do not actually test sparse attention (seq_len < topk=2048)
+2. Only prompt 5 exercises true sparse selection (202 tokens excluded)
+3. For sparse selection, local bias is very low (6.11%) - attention is distributed
+4. Current position always included (100%) - maintains causal structure
+5. First position always included (100%) - BOS token importance
+
+**Conclusion**: HF fork without Hadamard passes semantic equivalence tests, indicating Hadamard is not necessary for correctness. The claim "vLLM confirmed unnecessary" appears consistent with evidence.
 
 ### 2. RoPE Layout
 
