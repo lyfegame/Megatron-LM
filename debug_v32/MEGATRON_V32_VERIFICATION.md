@@ -392,6 +392,18 @@ torchrun --nproc_per_node=8 megatron_inference.py \
 - Conversion was in progress (100% weights loaded, saving checkpoint)
 - Need to reconnect to verify completion
 
+**SSH Debugging (2025-12-14)**:
+- Instance status: RUNNING
+- Port 22: OPEN (nc -z succeeds)
+- SSH banner exchange: TIMEOUT
+- **FACT**: sshd is unresponsive due to system I/O load from checkpoint save
+- IAP tunnel: Same timeout behavior
+
+**Options**:
+1. Wait for checkpoint save to complete
+2. Reset instance (would lose conversion progress)
+3. Keep trying periodically
+
 ### Scripts Ready for Execution
 When cluster access is restored:
 
