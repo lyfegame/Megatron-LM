@@ -128,15 +128,23 @@ class CPUOffloadWrapper:
                     print(f"  Found embedding via search: {name}")
                     break
 
-        # Find decoder layers
+        # Find decoder/transformer block and layers
+        self.decoder = None
         self.layers = None
-        if hasattr(self.model, 'decoder') and hasattr(self.model.decoder, 'layers'):
-            self.layers = self.model.decoder.layers
+        if hasattr(self.model, 'decoder'):
+            self.decoder = self.model.decoder
+            print(f"  Found decoder: {type(self.decoder).__name__}")
+            if hasattr(self.decoder, 'layers'):
+                self.layers = self.decoder.layers
+            else:
+                print(f"  Decoder attributes: {[a for a in dir(self.decoder) if not a.startswith('_')][:20]}")
         elif hasattr(self.model, 'language_model'):
             if hasattr(self.model.language_model, 'decoder'):
-                self.layers = self.model.language_model.decoder.layers
+                self.decoder = self.model.language_model.decoder
+                self.layers = self.decoder.layers
             elif hasattr(self.model.language_model, 'encoder'):
-                self.layers = self.model.language_model.encoder.layers
+                self.decoder = self.model.language_model.encoder
+                self.layers = self.decoder.layers
 
         # Find output layer - check multiple locations
         self.output_layer = None
@@ -225,6 +233,16 @@ class CPUOffloadWrapper:
 
                 # Move layer back to CPU
                 self._move_to_cpu(layer)
+        elif self.decoder is not None:
+            # Use decoder directly if layers not available
+            print(f"  [Offload] Processing decoder block (no layer-by-layer offload)...")
+            self._move_to_device(self.decoder, self.device)
+            hidden_states = self.decoder(hidden_states, attention_mask=attention_mask)
+            if isinstance(hidden_states, tuple):
+                hidden_states = hidden_states[0]
+            self._move_to_cpu(self.decoder)
+        else:
+            print("  [Offload] WARNING: No layers or decoder found!")
 
         # 3. Output layer (lm_head)
         if self.output_layer is not None:
@@ -236,10 +254,12 @@ class CPUOffloadWrapper:
             # If no separate output layer, use embedding weight (tied embeddings)
             print("  [Offload] Using tied embeddings for output...")
             self._move_to_device(self.embedding, self.device)
-            # Megatron uses .weight directly, not .word_embeddings.weight
-            emb_weight = getattr(self.embedding, 'weight', None)
-            if emb_weight is None and hasattr(self.embedding, 'word_embeddings'):
+            # Megatron LanguageModelEmbedding: embedding.word_embeddings.weight
+            # Megatron VocabParallelEmbedding: embedding.weight
+            if hasattr(self.embedding, 'word_embeddings'):
                 emb_weight = self.embedding.word_embeddings.weight
+            else:
+                emb_weight = self.embedding.weight
             logits = F.linear(hidden_states, emb_weight)
             self._move_to_cpu(self.embedding)
 
