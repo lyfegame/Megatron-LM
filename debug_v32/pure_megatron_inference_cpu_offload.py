@@ -134,17 +134,32 @@ class CPUOffloadWrapper:
         if hasattr(self.model, 'decoder'):
             self.decoder = self.model.decoder
             print(f"  Found decoder: {type(self.decoder).__name__}")
-            if hasattr(self.decoder, 'layers'):
-                self.layers = self.decoder.layers
-            else:
-                print(f"  Decoder attributes: {[a for a in dir(self.decoder) if not a.startswith('_')][:20]}")
+            decoder_attrs = [a for a in dir(self.decoder) if not a.startswith('_')]
+            print(f"  Decoder attributes: {decoder_attrs[:30]}")
+            # Try multiple attribute names for layers
+            for layer_attr in ['layers', '_layers', 'layer', 'blocks']:
+                if hasattr(self.decoder, layer_attr):
+                    self.layers = getattr(self.decoder, layer_attr)
+                    print(f"  Found layers at decoder.{layer_attr}: {len(self.layers)} layers")
+                    break
+            # If layers is a ModuleList-like object in a different structure
+            if self.layers is None:
+                # Check if decoder itself is iterable (has layers)
+                try:
+                    if hasattr(self.decoder, '__len__'):
+                        self.layers = self.decoder
+                        print(f"  Using decoder directly as layers: {len(self.layers)} layers")
+                except:
+                    pass
         elif hasattr(self.model, 'language_model'):
             if hasattr(self.model.language_model, 'decoder'):
                 self.decoder = self.model.language_model.decoder
-                self.layers = self.decoder.layers
+                if hasattr(self.decoder, 'layers'):
+                    self.layers = self.decoder.layers
             elif hasattr(self.model.language_model, 'encoder'):
                 self.decoder = self.model.language_model.encoder
-                self.layers = self.decoder.layers
+                if hasattr(self.decoder, 'layers'):
+                    self.layers = self.decoder.layers
 
         # Find output layer - check multiple locations
         self.output_layer = None
@@ -249,6 +264,9 @@ class CPUOffloadWrapper:
             print("  [Offload] Processing output layer...")
             self._move_to_device(self.output_layer, self.device)
             logits = self.output_layer(hidden_states)
+            # Handle tuple output (some models return (logits, aux_loss) or similar)
+            if isinstance(logits, tuple):
+                logits = logits[0]
             self._move_to_cpu(self.output_layer)
         else:
             # If no separate output layer, use embedding weight (tied embeddings)
@@ -263,6 +281,9 @@ class CPUOffloadWrapper:
             logits = F.linear(hidden_states, emb_weight)
             self._move_to_cpu(self.embedding)
 
+        # Ensure logits is a tensor
+        if isinstance(logits, tuple):
+            logits = logits[0]
         return logits.to(self.cpu_device)
 
     def __call__(self, *args, **kwargs):

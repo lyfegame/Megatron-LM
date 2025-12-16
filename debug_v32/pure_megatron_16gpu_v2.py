@@ -56,6 +56,8 @@ def decode(tokenizer, ids):
 
 def setup_distributed():
     """Setup NCCL distributed environment."""
+    import datetime
+
     rank = int(os.environ.get("RANK", 0))
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -63,7 +65,13 @@ def setup_distributed():
     torch.cuda.set_device(local_rank)
 
     if not dist.is_initialized():
-        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+        # Use 1 hour timeout for checkpoint loading with resharding
+        dist.init_process_group(
+            backend="nccl",
+            rank=rank,
+            world_size=world_size,
+            timeout=datetime.timedelta(hours=2)
+        )
 
     return rank, local_rank, world_size
 
@@ -91,15 +99,18 @@ def initialize_megatron(tp_size: int, ep_size: int):
 # ============================================================================
 
 def create_model(tp_size: int, ep_size: int):
-    """Create DeepSeek V3.2 model using Megatron-Bridge provider."""
-    from megatron.bridge.models.deepseek.deepseek_v32_bridge import DeepSeekV32ModelProvider
+    """Create DeepSeek V3 model using Megatron-Bridge provider."""
+    # NOTE: Using V3 provider (not V3.2) because checkpoint was converted without Lightning Indexer weights
+    from megatron.bridge.models.deepseek.deepseek_provider import DeepSeekV3ModelProvider
     from megatron.bridge.models.model_provider import get_model
     from megatron.bridge.training.config import DistributedDataParallelConfig
 
     rank = dist.get_rank()
 
     # Create model provider with parallelism config
-    provider = DeepSeekV32ModelProvider(
+    # NOTE: Explicitly set index_topk=None to disable Lightning Indexer
+    # The checkpoint was converted without indexer weights
+    provider = DeepSeekV3ModelProvider(
         tensor_model_parallel_size=tp_size,
         pipeline_model_parallel_size=1,
         expert_model_parallel_size=ep_size,
@@ -107,17 +118,21 @@ def create_model(tp_size: int, ep_size: int):
         bf16=True,
         # Disable fusions that require APEX (not installed)
         gradient_accumulation_fusion=False,
+        # Disable sparse attention (checkpoint doesn't have indexer weights)
+        index_topk=None,
     )
 
     # CRITICAL: finalize() must be called to trigger __post_init__ which sets init_method
     provider.finalize()
 
     if rank == 0:
-        print(f"Creating model with DeepSeekV32ModelProvider")
+        print(f"Creating model with DeepSeekV3ModelProvider (no Lightning Indexer)")
         print(f"  num_layers: {provider.num_layers}")
         print(f"  hidden_size: {provider.hidden_size}")
         print(f"  num_moe_experts: {provider.num_moe_experts}")
         print(f"  TP: {tp_size}, EP: {ep_size}")
+        print(f"  index_topk: {getattr(provider, 'index_topk', 'NOT SET')}")
+        print(f"  use_sparse_attention: {getattr(provider, 'use_sparse_attention', 'NOT SET')}")
 
     # Create DDP config (we will not use DDP for inference)
     ddp_config = DistributedDataParallelConfig(
@@ -125,13 +140,13 @@ def create_model(tp_size: int, ep_size: int):
         use_distributed_optimizer=False,
     )
 
-    # Build model with meta device init (weights will be loaded from checkpoint)
+    # Build model on GPU (meta device init doesn't support ShardedTensor for MoE)
     models = get_model(
         model_provider=provider,
         ddp_config=ddp_config,
         wrap_with_ddp=False,
         bf16=True,
-        init_model_with_meta_device=True,
+        init_model_with_meta_device=False,
     )
 
     model = models[0]
@@ -158,10 +173,15 @@ def load_checkpoint(model, checkpoint_path: str):
     sharded_state_dict = model.sharded_state_dict()
 
     # Load with resharding
+    # Note: validate_access_integrity=False allows loading when checkpoint has extra keys
+    # (like lightning_indexer weights that we don't need)
     ckpt_dir = Path(checkpoint_path) / "iter_0000000"
+    from megatron.core.dist_checkpointing.validation import StrictHandling
     load(
         sharded_state_dict=sharded_state_dict,
         checkpoint_dir=str(ckpt_dir),
+        validate_access_integrity=False,
+        strict=StrictHandling.LOG_UNEXPECTED,
     )
 
     # Load into model
@@ -255,7 +275,7 @@ def generate(model, tokenizer, prompt: str, max_new_tokens: int = 50):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default="/mnt/models-disk/DeepSeek-V3.2-megatron")
+    parser.add_argument("--checkpoint", default="/mnt/local-nvme/DeepSeek-V3.2-megatron")
     parser.add_argument("--tokenizer", default="/mnt/models-disk/DeepSeek-V3.2-fp8")
     parser.add_argument("--tp", type=int, default=8)
     parser.add_argument("--ep", type=int, default=2)

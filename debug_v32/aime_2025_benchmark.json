@@ -1,0 +1,217 @@
+{
+  "name": "AIME 2025",
+  "description": "American Invitational Mathematics Examination 2025 (AIME I + AIME II)",
+  "total_problems": 30,
+  "problems": [
+    {
+      "id": "AIME_I_1",
+      "exam": "AIME I 2025",
+      "number": 1,
+      "problem": "Find the sum of all integer bases b > 9 for which 17_b is a divisor of 97_b.",
+      "answer": 70
+    },
+    {
+      "id": "AIME_I_2",
+      "exam": "AIME I 2025",
+      "number": 2,
+      "problem": "In triangle ABC, points D and E lie on sides AB and AC respectively. The reflection of D over the perpendicular bisector of AB is F and the reflection of E over the perpendicular bisector of AC is N. Calculate the area of heptagon AFNBCEM given specific measurements.",
+      "answer": 588
+    },
+    {
+      "id": "AIME_I_3",
+      "exam": "AIME I 2025",
+      "number": 3,
+      "problem": "The 9 members of a baseball team went to an ice-cream parlor after their game. Each player had a single scoop cone of chocolate, vanilla, or strawberry ice cream. At least one player chose each flavor, and the number of players who chose chocolate was greater than the number of players who chose vanilla, which was greater than the number of players who chose strawberry. Let N be the number of different assignments of flavors to players that meet these conditions. Find the remainder when N is divided by 1000.",
+      "answer": 16
+    },
+    {
+      "id": "AIME_I_4",
+      "exam": "AIME I 2025",
+      "number": 4,
+      "problem": "Find the number of ordered pairs (x,y), where both x and y are integers between -100 and 100, inclusive, such that 12x^2-xy-6y^2=0.",
+      "answer": 117
+    },
+    {
+      "id": "AIME_I_5",
+      "exam": "AIME I 2025",
+      "number": 5,
+      "problem": "Find the number of eight-digit positive integers that use each of the digits 1, 2, 3, 4, 5, 6, 7, and 8 exactly once and are divisible by 22. Then find the difference between this count and 2025.",
+      "answer": 279
+    },
+    {
+      "id": "AIME_I_6",
+      "exam": "AIME I 2025",
+      "number": 6,
+      "problem": "An isosceles trapezoid has an inscribed circle tangent to each of its four sides. The radius of the circle is 3, and the area of the trapezoid is 72. Let the parallel sides of the trapezoid have lengths r and s, with r != s. Find r^2 + s^2.",
+      "answer": 504
+    },
+    {
+      "id": "AIME_I_7",
+      "exam": "AIME I 2025",
+      "number": 7,
+      "problem": "The twelve letters A, B, C, D, E, F, G, H, I, J, K, and L are randomly grouped into six pairs of letters. The two letters in each pair are placed next to each other in alphabetical order to form six two-letter words, and then those six words are listed alphabetically. The probability that the last word listed contains G is m/n, where m and n are relatively prime positive integers. Find m+n.",
+      "answer": 821
+    },
+    {
+      "id": "AIME_I_8",
+      "exam": "AIME I 2025",
+      "number": 8,
+      "problem": "Find the sum of all values of k for which the system of complex number equations has exactly one solution, with the sum expressed as m/n in lowest terms.",
+      "answer": 77
+    },
+    {
+      "id": "AIME_I_9",
+      "exam": "AIME I 2025",
+      "number": 9,
+      "problem": "The parabola with equation y = x^2 - 4 is rotated 60 degrees counterclockwise around the origin. The unique point in the fourth quadrant where the original parabola and its image intersect has y-coordinate (a - sqrt(b))/c, where a, b, and c are positive integers, and a and c are relatively prime. Find a + b + c.",
+      "answer": 62
+    },
+    {
+      "id": "AIME_I_10",
+      "exam": "AIME I 2025",
+      "number": 10,
+      "problem": "Find the number of ways to fill a 3x9 grid with numbers 1-9 following Sudoku-like constraints. Answer is in form p^a * q^b * r^c * s^d.",
+      "answer": 81
+    },
+    {
+      "id": "AIME_I_11",
+      "exam": "AIME I 2025",
+      "number": 11,
+      "problem": "The parabola x = 34y^2 intersects a piecewise linear sawtooth function f(x) at finitely many points. The sum of the y-coordinates of all these intersection points can be expressed in the form (a + b*sqrt(c))/d. Find a + b + c + d.",
+      "answer": 259
+    },
+    {
+      "id": "AIME_I_12",
+      "exam": "AIME I 2025",
+      "number": 12,
+      "problem": "Three-dimensional geometry problem involving a plane x+y+z=75 with inequality constraints creating convex regions. Find the area of the finite region expressed as a*sqrt(b).",
+      "answer": 510
+    },
+    {
+      "id": "AIME_I_13",
+      "exam": "AIME I 2025",
+      "number": 13,
+      "problem": "Alex divides a disk into four quadrants with two perpendicular diameters intersecting at the center of the disk. He draws 25 more line segments through the disk, drawing each segment by selecting two points at random on the perimeter of the disk in different quadrants and connecting these two points. Find the expected number of regions into which these 27 line segments divide the disk.",
+      "answer": 204
+    },
+    {
+      "id": "AIME_I_14",
+      "exam": "AIME I 2025",
+      "number": 14,
+      "problem": "Pentagon ABCDE with specific side lengths and angles (angle B = angle E = 60 degrees). Find the minimum value of f(X)=AX+BX+CX+DX+EX expressed as m+n*sqrt(p).",
+      "answer": 60
+    },
+    {
+      "id": "AIME_I_15",
+      "exam": "AIME I 2025",
+      "number": 15,
+      "problem": "Let N denote the number of ordered triples of positive integers (a, b, c) such that a, b, c <= 3^6 and a^3 + b^3 + c^3 is a multiple of 3^7. Find the remainder when N is divided by 1000.",
+      "answer": 735
+    },
+    {
+      "id": "AIME_II_1",
+      "exam": "AIME II 2025",
+      "number": 1,
+      "problem": "Six collinear points A, B, C, D, E, F with point G not on the line. Given: AC=26, BD=22, CE=31, DF=33, AF=73, CG=40, DG=30. Find the area of triangle BGE.",
+      "answer": 468
+    },
+    {
+      "id": "AIME_II_2",
+      "exam": "AIME II 2025",
+      "number": 2,
+      "problem": "Find the sum of all positive integers n such that n+2 divides the product 3(n+3)(n^2+9).",
+      "answer": 49
+    },
+    {
+      "id": "AIME_II_3",
+      "exam": "AIME II 2025",
+      "number": 3,
+      "problem": "Four unit squares in a 2x2 grid with 12 line segments colored red or blue such that each unit square has 2 red sides and 2 blue sides. Find the number of such colorings.",
+      "answer": 82
+    },
+    {
+      "id": "AIME_II_4",
+      "exam": "AIME II 2025",
+      "number": 4,
+      "problem": "Evaluate the product of logarithmic expressions from k=4 to 63, expressed as m/n in lowest terms. Find m + n.",
+      "answer": 106
+    },
+    {
+      "id": "AIME_II_5",
+      "exam": "AIME II 2025",
+      "number": 5,
+      "problem": "Triangle ABC with angles 84, 60, 36 degrees. D, E, F are midpoints of sides. Circumcircle of triangle DEF intersects specific segments at points G, H, J. Find DE + 2*HJ + 3*FG.",
+      "answer": 336
+    },
+    {
+      "id": "AIME_II_6",
+      "exam": "AIME II 2025",
+      "number": 6,
+      "problem": "Two circles with internal tangency. Rectangle EFGH inscribed in smaller circle with specific geometric constraints. Find the area of rectangle EFGH expressed as m/n. Find m+n.",
+      "answer": 293
+    },
+    {
+      "id": "AIME_II_7",
+      "exam": "AIME II 2025",
+      "number": 7,
+      "problem": "Set A contains divisors of 2025. Subset B of A is randomly selected. Find the probability that B is nonempty with lcm of elements equaling 2025, expressed as m/n. Find m+n.",
+      "answer": 237
+    },
+    {
+      "id": "AIME_II_8",
+      "exam": "AIME II 2025",
+      "number": 8,
+      "problem": "Greedy algorithm for collecting 1 cent, 10 cent, 25 cent coins totaling N cents. Find the number of values of N between 1 and 1000 inclusive for which the greedy algorithm succeeds.",
+      "answer": 610
+    },
+    {
+      "id": "AIME_II_9",
+      "exam": "AIME II 2025",
+      "number": 9,
+      "problem": "Find n values of x in (0,2*pi) where f(x)=sin(7*pi*sin(5x))=0. For t of these values, the graph is tangent to the x-axis. Find n+t.",
+      "answer": 149
+    },
+    {
+      "id": "AIME_II_10",
+      "exam": "AIME II 2025",
+      "number": 10,
+      "problem": "Sixteen chairs in a row; eight people sit so no person sits next to two other people. Find N (number of valid chair subsets) mod 1000.",
+      "answer": 907
+    },
+    {
+      "id": "AIME_II_11",
+      "exam": "AIME II 2025",
+      "number": 11,
+      "problem": "Regular 24-gon with vertices S. Find the number of ways to draw 12 segments of equal lengths so each vertex is an endpoint of exactly one segment.",
+      "answer": 113
+    },
+    {
+      "id": "AIME_II_12",
+      "exam": "AIME II 2025",
+      "number": 12,
+      "problem": "11-sided non-convex polygon with specific area and angle constraints, perimeter equals 20. Find A1A2+A1A11 expressed as (m*sqrt(n)-p)/q. Find m+n+p+q.",
+      "answer": 19
+    },
+    {
+      "id": "AIME_II_13",
+      "exam": "AIME II 2025",
+      "number": 13,
+      "problem": "Sequence defined by x_1=25/11 and x_{k+1}=(1/3)(x_k+1/x_k-1). Find x_2025=m/n. Find remainder when m+n is divided by 1000.",
+      "answer": 248
+    },
+    {
+      "id": "AIME_II_14",
+      "exam": "AIME II 2025",
+      "number": 14,
+      "problem": "Right triangle ABC with angle A=90 degrees, BC=38. Points K, L inside satisfy AK=AL=BK=CL=KL=14. Find area of quadrilateral BKLC as n*sqrt(3).",
+      "answer": 104
+    },
+    {
+      "id": "AIME_II_15",
+      "exam": "AIME II 2025",
+      "number": 15,
+      "problem": "Exactly three positive k make f(x)=(x-18)(x-72)(x-98)(x-k)/x achieve minimum at exactly two positive x. Find the sum of these three k values.",
+      "answer": 240
+    }
+  ]
+}
