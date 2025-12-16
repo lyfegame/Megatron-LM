@@ -107,6 +107,9 @@ def create_model(tp_size: int, ep_size: int):
         bf16=True,
     )
 
+    # CRITICAL: finalize() must be called to trigger __post_init__ which sets init_method
+    provider.finalize()
+
     if rank == 0:
         print(f"Creating model with DeepSeekV32ModelProvider")
         print(f"  num_layers: {provider.num_layers}")
