@@ -17,7 +17,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from megatron.core import parallel_state
-from megatron.core.models.common.embeddings.rope_utils import get_pos_emb_on_this_cp_rank
 from megatron.core.tensor_parallel import (
     ColumnParallelLinear,
     gather_from_tensor_model_parallel_region,
@@ -26,6 +25,42 @@ from megatron.core.tensor_parallel.mappings import _reduce
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
+
+
+# =============================================================================
+# Context Parallelism (CP) Support
+# =============================================================================
+# When CP > 1, each rank has only a portion of the sequence. The indexer needs
+# the FULL sequence to compute global top-K indices. We all-gather hidden states
+# so all CP ranks compute identical indices (redundant but correct).
+# See: docs/lightning_indexer_cp_support_plan.md for design rationale.
+# =============================================================================
+
+
+def _all_gather_from_cp_region(
+    tensor: torch.Tensor, seq_dim: int = 0
+) -> torch.Tensor:
+    """All-gather tensor from all CP ranks along sequence dimension.
+
+    Args:
+        tensor: Input tensor with local sequence portion
+        seq_dim: Dimension containing sequence (default 0 for SBH format)
+
+    Returns:
+        Gathered tensor with full sequence from all CP ranks
+    """
+    cp_size = parallel_state.get_context_parallel_world_size()
+    if cp_size == 1:
+        return tensor
+
+    cp_group = parallel_state.get_context_parallel_group()
+
+    # Gather list of tensors from all CP ranks
+    tensor_list = [torch.empty_like(tensor) for _ in range(cp_size)]
+    torch.distributed.all_gather(tensor_list, tensor, group=cp_group)
+
+    # Concatenate along sequence dimension
+    return torch.cat(tensor_list, dim=seq_dim)
 
 
 @dataclass
@@ -215,19 +250,40 @@ class LightningIndexer(MegatronModule):
             attention_mask: Optional causal mask [batch, 1, seq, seq] or similar
 
         Returns:
-            topk_indices: Selected token indices [batch, seq, topk]
-                          Identical on all TP ranks after all-reduce.
+            topk_indices: Selected token indices [batch, full_seq, topk]
+                          Identical on all TP and CP ranks.
+
+        Note:
+            With CP > 1, all-gathers hidden states to compute GLOBAL top-K indices.
+            All CP ranks compute identical indices (redundant but correct).
         """
-        seq_len, batch_size, _ = hidden_states.size()
+        local_seq_len, batch_size, _ = hidden_states.size()
+        cp_size = parallel_state.get_context_parallel_world_size()
+
+        # === CP Handling: All-gather for global top-K indexing ===
+        if cp_size > 1:
+            # All-gather hidden states and q_compressed from all CP ranks
+            # [local_seq, batch, dim] -> [full_seq, batch, dim]
+            hidden_states_full = _all_gather_from_cp_region(hidden_states, seq_dim=0)
+            q_compressed_full = _all_gather_from_cp_region(q_compressed, seq_dim=0)
+            full_seq_len = hidden_states_full.size(0)
+
+            # Use full rotary embeddings (already computed for full sequence)
+            rotary_pos_emb_full = rotary_pos_emb[:full_seq_len]
+        else:
+            hidden_states_full = hidden_states
+            q_compressed_full = q_compressed
+            rotary_pos_emb_full = rotary_pos_emb
+            full_seq_len = local_seq_len
 
         # Use chunked implementation for long sequences to save memory
-        if seq_len > self.chunk_size:
+        if full_seq_len > self.chunk_size:
             return self._forward_chunked(
-                hidden_states, q_compressed, rotary_pos_emb, attention_mask
+                hidden_states_full, q_compressed_full, rotary_pos_emb_full, attention_mask
             )
         else:
             return self._forward_simple(
-                hidden_states, q_compressed, rotary_pos_emb, attention_mask
+                hidden_states_full, q_compressed_full, rotary_pos_emb_full, attention_mask
             )
 
     def _forward_simple(
@@ -237,7 +293,10 @@ class LightningIndexer(MegatronModule):
         rotary_pos_emb: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Simple non-chunked forward pass for short sequences."""
+        """Simple non-chunked forward pass for short sequences.
+
+        Note: With CP enabled, receives FULL sequence (already all-gathered in forward()).
+        """
         seq_len, batch_size, _ = hidden_states.size()
 
         # === Q Projection (from shared compressed representation) ===
@@ -258,11 +317,9 @@ class LightningIndexer(MegatronModule):
         k_pe = k[..., : self.qk_rope_head_dim]
         k_nope = k[..., self.qk_rope_head_dim :]
 
-        # Get RoPE frequencies for this CP rank if using context parallelism
-        if parallel_state.get_context_parallel_world_size() > 1:
-            freqs_cis = get_pos_emb_on_this_cp_rank(rotary_pos_emb, seq_len)
-        else:
-            freqs_cis = rotary_pos_emb[:seq_len]
+        # Get RoPE frequencies for full sequence
+        # (CP handling done in forward() - we receive full sequence here)
+        freqs_cis = rotary_pos_emb[:seq_len]
 
         # Apply non-interleaved RoPE
         q_pe = apply_rotary_emb_non_interleaved(q_pe, freqs_cis)
@@ -329,6 +386,8 @@ class LightningIndexer(MegatronModule):
 
         Instead of materializing full [seq, seq, heads] logits tensor,
         process Q in chunks and accumulate scores.
+
+        Note: With CP enabled, receives FULL sequence (already all-gathered in forward()).
         """
         seq_len, batch_size, _ = hidden_states.size()
 
@@ -340,10 +399,9 @@ class LightningIndexer(MegatronModule):
         k_pe = k[..., : self.qk_rope_head_dim]
         k_nope = k[..., self.qk_rope_head_dim :]
 
-        if parallel_state.get_context_parallel_world_size() > 1:
-            freqs_cis = get_pos_emb_on_this_cp_rank(rotary_pos_emb, seq_len)
-        else:
-            freqs_cis = rotary_pos_emb[:seq_len]
+        # Get RoPE frequencies for full sequence
+        # (CP handling done in forward() - we receive full sequence here)
+        freqs_cis = rotary_pos_emb[:seq_len]
 
         k_pe = apply_rotary_emb_non_interleaved(k_pe.unsqueeze(2), freqs_cis).squeeze(2)
         k = torch.cat([k_pe, k_nope], dim=-1)
