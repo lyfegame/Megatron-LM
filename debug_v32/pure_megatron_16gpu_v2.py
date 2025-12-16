@@ -105,6 +105,8 @@ def create_model(tp_size: int, ep_size: int):
         expert_model_parallel_size=ep_size,
         sequence_parallel=tp_size > 1,
         bf16=True,
+        # Disable fusions that require APEX (not installed)
+        gradient_accumulation_fusion=False,
     )
 
     # CRITICAL: finalize() must be called to trigger __post_init__ which sets init_method
